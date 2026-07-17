@@ -1,18 +1,20 @@
-package app.stockpickers.kmp.ui
+package app.stockpickers.kmp.android
 
+import android.app.Application
 import androidx.compose.material3.MaterialTheme
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
 import app.stockpickers.kmp.domain.QualityGate
+import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.domain.TickerDetail
-import app.stockpickers.kmp.modelcreators.TickerModelCreator
 import app.stockpickers.kmp.presentation.MomentumLeadersUiState
 import app.stockpickers.kmp.presentation.TickerDetailUiState
+import app.stockpickers.kmp.ui.MomentumLeadersScreen
+import app.stockpickers.kmp.ui.TickerDetailScreen
 import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.jetbrains.compose.resources.PreviewContextConfigurationEffect
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -20,39 +22,28 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Roborazzi snapshots of the two screens, rendered by the REAL Compose UI on the
- * host JVM through Robolectric's native graphics. Uses the STATELESS overloads
- * with fake UiState (no Koin, no ViewModel) — exactly what those overloads exist
- * for. Record with `recordRoborazzi*`, then compare with `verifyRoborazzi*`.
+ * Roborazzi snapshots of the shared Compose Multiplatform screens, run on the host
+ * JVM via Robolectric. Lives in :composeApp so it can stage the CMP composeResources
+ * onto the unit-test classpath (see `stageComposeResForTest` in build.gradle.kts).
  *
- * `lastSyncedAt` is null so the sync label reads a fixed "never synced" string
- * rather than a clock-relative one — snapshots must be deterministic.
+ * `PreviewContextConfigurationEffect()` switches CMP to the classpath resource
+ * reader (the one Android Studio previews use), which then finds the staged
+ * package-qualified `.cvr` files — so `stringResource()` resolves here.
  */
-/*
- * DISABLED (bleeding-edge tooling gap, not a code defect): Compose Multiplatform
- * string resources fail to load under the AGP 9 KMP `androidHostTest` + Robolectric
- * classpath. The compiled `.cvr` index (composeResources/.../strings.commonMain.cvr)
- * is generated for the iOS and Android *app* targets but is NOT placed on the
- * host-test runtime classpath, so `stringResource()` throws
- * `MissingResourceException` during capture. `PreviewContextConfigurationEffect()`
- * wires the Android Context but cannot conjure a resource file that isn't there.
- *
- * The screens themselves are verified visually by real on-device screenshots
- * (iOS simulator + Android emulator). Re-enable once CMP wires composeResources
- * into the KMP android host-test classpath.
- */
-@Ignore("CMP composeResources not on the AGP9 KMP androidHostTest classpath — see comment above")
 @OptIn(ExperimentalRoborazziApi::class)
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w360dp-h800dp-xhdpi")
+// Plain Application, NOT StockpickersApp: the real one calls initKoin() in onCreate,
+// which Robolectric would re-run per test (KoinApplicationAlreadyStarted on the 2nd).
+// The stateless screen overloads take their state directly and need no Koin.
+@Config(application = Application::class, sdk = [34], qualifiers = "w360dp-h800dp-xhdpi")
 class ScreenSnapshotTest {
 
     private fun leadersState() = MomentumLeadersUiState(
         sort = LeaderSort.STRENGTH,
         geo = GeoFilter.ALL,
         counts = GeoCounts(total = 42, usa = 20, ita = 5, asia = 17),
-        leaders = TickerModelCreator.list(6),
+        leaders = sampleTickers(),
         isLoading = false,
         isRefreshing = false,
         isOffline = false,
@@ -82,12 +73,18 @@ class ScreenSnapshotTest {
         isLoading = false,
     )
 
+    private fun sampleTickers(): List<Ticker> = listOf(
+        Ticker("DAVE", "Dave Inc.", "United States", "Technology", null, 7.42, 0.482, 0.30, 0.28, 1.31, 20.8, 0.09, 0.578, 0.26),
+        Ticker("SEZL", "Sezzle Inc.", "United States", "Financial Services", null, 6.10, 0.251, 0.22, 0.19, 0.88, 15.0, 0.7, 0.30, 0.61),
+        Ticker("VLO", "Valero Energy", "United States", "Energy", null, 5.30, 0.230, 0.20, 0.18, 0.42, 9.0, 0.9, 0.20, 0.74),
+        Ticker("2330.TW", "TSMC", "Taiwan", "Technology", null, 4.90, 0.036, 0.12, 0.22, 1.30, 19.0, 0.8, 0.25, 0.97),
+        Ticker("BPE.MI", "BPER Banca", "Italy", "Financial Services", null, 4.10, 0.150, 0.16, 0.14, 0.60, 7.0, 0.5, 0.18, 0.55),
+        Ticker("8411.T", "Mizuho", "Japan", "Financial Services", null, 3.80, 0.090, 0.10, 0.12, 0.50, 11.0, 0.6, 0.15, 0.62),
+    )
+
     @Test
     fun momentumLeadersScreen_withData() {
-        captureRoboImage(filePath = "MomentumLeadersScreen_data.png") {
-            // CMP's Android resource reader needs a Context; Robolectric has one but
-            // does not wire it into the resource system. This effect supplies it,
-            // exactly as @Preview does — without it stringResource() throws.
+        captureRoboImage(filePath = "build/outputs/roborazzi/MomentumLeadersScreen_data.png") {
             PreviewContextConfigurationEffect()
             MaterialTheme {
                 MomentumLeadersScreen(
@@ -104,7 +101,7 @@ class ScreenSnapshotTest {
 
     @Test
     fun tickerDetailScreen_withData() {
-        captureRoboImage(filePath = "TickerDetailScreen_data.png") {
+        captureRoboImage(filePath = "build/outputs/roborazzi/TickerDetailScreen_data.png") {
             PreviewContextConfigurationEffect()
             MaterialTheme {
                 TickerDetailScreen(

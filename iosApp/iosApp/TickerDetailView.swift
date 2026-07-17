@@ -1,25 +1,30 @@
 import SwiftUI
 import Shared
 
-/// Observes the SHARED Kotlin `TickerDetailViewModel` (via `TickerDetailBridge`)
-/// and republishes its state to SwiftUI. This is the manual Flow->Swift bridge that
-/// SKIE would otherwise generate — SKIE 0.10.13 doesn't support Kotlin 2.4.10 yet.
+/// Observes the SHARED Kotlin `TickerDetailViewModel` and republishes its state to
+/// SwiftUI. SKIE exposes the ViewModel's `StateFlow` as a native Swift
+/// `AsyncSequence`, so this iterates it directly — no hand-written bridge. The
+/// `for await` Task is cancelled in `.onDisappear`, which drops the last subscriber
+/// and lets the ViewModel's `WhileSubscribed` tear the Room flow down.
 @MainActor
 final class TickerDetailModel: ObservableObject {
     @Published var state: TickerDetailUiState
-    private let bridge: TickerDetailBridge
+    private let viewModel: TickerDetailViewModel
+    private var task: Task<Void, Never>?
 
     init(ticker: String) {
-        let bridge = TickerDetailBridge(ticker: ticker)
-        self.bridge = bridge
-        self.state = bridge.current
-        bridge.observe { [weak self] newState in
-            self?.state = newState
+        let vm = IosViewModelsKt.tickerDetailViewModel(ticker: ticker)
+        self.viewModel = vm
+        self.state = vm.uiState.value
+        task = Task { [weak self] in
+            for await newState in vm.uiState {
+                self?.state = newState
+            }
         }
     }
 
-    /// Stop collecting the shared StateFlow. Called from `.onDisappear`.
-    func stop() { bridge.cancel() }
+    /// Stop observing the shared StateFlow. Called from `.onDisappear`.
+    func stop() { task?.cancel() }
 }
 
 /// NATIVE SwiftUI detail screen. Same shared ViewModel as the Compose (Android)

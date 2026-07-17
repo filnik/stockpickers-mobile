@@ -126,7 +126,7 @@ See the KMP-specific Nav3 gotchas below — several are not in the AndroidX docs
 | Concern | Choice |
 |---|---|
 | UI | Compose Multiplatform 1.11.1, Material 3 |
-| Language | Kotlin 2.4.10 |
+| Language | Kotlin 2.4.0 (pinned for SKIE — see below) |
 | Navigation | Navigation 3 (`org.jetbrains.androidx.navigation3` 1.2.0-alpha02) |
 | DB | Room 3.0 (`androidx.room3`) + `sqlite-bundled` |
 | Network | Ktor 3.5.1 (OkHttp on Android, Darwin on iOS) |
@@ -165,10 +165,10 @@ Hard-won on THIS project. Most cost a build failure or a runtime crash — read 
 ### Hybrid UI & iOS interop
 The iOS detail screen is **native SwiftUI** (`iosApp/iosApp/TickerDetailView.swift`) observing the shared Kotlin `TickerDetailViewModel`. How the pieces fit:
 - **`MainViewController(onTickerSelected:)`** (iosMain) hosts ONLY the Compose leaders list — not the Nav3 back stack. A row tap invokes the Swift callback, which does `path.append(ticker)` on a SwiftUI `NavigationStack` → native detail push. Android keeps the full Nav3 stack in Compose (`StockpickersRoot`). So navigation is *native on iOS, Compose on Android*: the deliberate cost of "whole native screens" is coordinating the two.
-- **`TickerDetailBridge` (iosMain)** exposes the shared ViewModel to Swift: it collects `uiState` on `Dispatchers.Main` and pushes each value to a Swift closure; `cancel()` (from SwiftUI `.onDisappear`) stops it. `WhileSubscribed(5s)` then tears down the upstream Room flow.
-- **SKIE is applied but DISABLED** (`skie { isEnabled = false }`): v0.10.13 does not support Kotlin 2.4.10 yet (SKIE lags new Kotlin by days). The hand-rolled bridge is the interim; flip SKIE on and drop the bridge once a compatible SKIE ships. This is why the bridge exists at all — without SKIE there is no `Flow`→`AsyncSequence`.
-- **Nullable Doubles cross as `KotlinDouble?`**, not `Double?` — read them in Swift with `.doubleValue` (and `KotlinBoolean?.boolValue`). SKIE would smooth this over; it doesn't while disabled.
-- A class constructor (`TickerDetailBridge(ticker:)`) is safe — only the `init*` *function* family is mangled, not constructors.
+- **SKIE observes the shared ViewModel.** `IosViewModels.kt` exposes `tickerDetailViewModel(ticker)` (resolves the ViewModel from Koin); SKIE turns its `StateFlow<TickerDetailUiState>` into a Swift `AsyncSequence`, so `TickerDetailModel` (SwiftUI) does `for await state in vm.uiState` directly, with `.value` for the first frame. No hand-written Flow bridge. The `for await` Task is cancelled in `.onDisappear`, dropping the last subscriber so the ViewModel's `WhileSubscribed(5s)` tears down the Room flow.
+- **SKIE is why Kotlin is pinned to 2.4.0.** SKIE (a compiler plugin) supports Kotlin up to 2.4.0; a newer Kotlin (e.g. 2.4.10) would disable it until Touchlab ships a matching build. Keeping SKIE on is worth the pin — it's the whole point of the native-Swift interop. `skie { isEnabled = true }`.
+- **Nullable Doubles still cross as `KotlinDouble?`**, not `Double?` — read them in Swift with `.doubleValue` (and `KotlinBoolean?.boolValue`). SKIE fixes Flow/suspend/sealed/enum, but not the primitive-boxing of arbitrary data-class properties; that's a broader Kotlin↔Obj-C limit.
+- A Swift-exposed factory must not be named `init*` (the Obj-C exporter mangles that function family); `tickerDetailViewModel(...)` and class constructors cross unmangled.
 
 ### Room 3.0
 - Room 3.0 is a **new package (`androidx.room3`) and a new Gradle extension (`room3 { }`)** — not `androidx.room` / `room { }` as in 2.x. Mixing them silently fails to generate code.
@@ -229,7 +229,7 @@ Two source sets by capability (run: `./gradlew :shared:testAndroidHostTest :shar
 - Navigation is testable as plain list manipulation — assert on `Navigator.backStack`, no Compose needed.
 - **Never use optionals in test assertions**: `result!!.message`, not `result?.message` — tests must fail loudly.
 - Model Creators (`modelcreators/`, `base/ModelCreators.kt`) build test data, per the Wishew convention.
-- **Roborazzi snapshot tests are `@Ignore`d** (`ui/ScreenSnapshotTest.kt`): CMP `composeResources` (`.cvr`) don't load on the AGP9 KMP `androidHostTest` + Robolectric classpath, so `stringResource()` throws `MissingResourceException` during capture. Not a code defect — a bleeding-edge tooling gap. Screens are verified visually by real on-device screenshots instead. Re-enable when the classpath issue is fixed.
+- **`composeApp/src/test`** — Roborazzi screenshot tests of the shared CMP screens, run on the host JVM (`:composeApp:recordRoborazziDebug` / `verifyRoborazziDebug`). They live in the app module, NOT :shared, on purpose: capturing a CMP screen that uses `composeResources` (`stringResource`) needs the compiled `.cvr` on the test classpath, and the AGP9 KMP `androidLibrary` does not propagate them to a host test. The `stageComposeResForTest` Copy task (composeApp `build.gradle.kts`) stages :shared's prepared composeResources into the unit-test classpath in the package-qualified layout the runtime expects; `PreviewContextConfigurationEffect()` then reads them from the classpath. `@Config(application = Application::class)` avoids the app's Koin start firing per test. This was the one genuinely hard piece of test infra — don't "simplify" the staging away.
 
 ### Git & Version Control
 - **NEVER commit changes autonomously** — finish without committing.

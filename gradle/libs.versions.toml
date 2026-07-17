@@ -1,6 +1,10 @@
 [versions]
 agp = "9.3.0"
-kotlin = "2.4.10"
+# Pinned to 2.4.0 (not the newer 2.4.10) because SKIE — the iOS interop plugin —
+# supports Kotlin up to 2.4.0 and hooks compiler internals, so it can't run on a
+# newer Kotlin until Touchlab ships a matching build. On a KMP app the toolchain is
+# only as new as its critical iOS plugin; pinning here keeps SKIE enabled.
+kotlin = "2.4.0"
 compose = "1.11.1"
 ksp = "2.3.10"
 room = "3.0.0"

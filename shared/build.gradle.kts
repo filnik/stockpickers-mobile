@@ -12,7 +12,6 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
     alias(libs.plugins.skie)
-    alias(libs.plugins.roborazzi)
 }
 
 // --- Secrets: read from local.properties (git-ignored) and generate a Kotlin source ---
@@ -147,22 +146,16 @@ kotlin {
                 implementation(libs.ktor.client.mock)
             }
         }
-        // JVM-only tests that need a real SQLite engine (the DAO SQL) or Robolectric
-        // (Roborazzi snapshots). `sqlite-bundled-jvm` supplies the desktop native the
-        // Android AAR lacks, so `BundledSQLiteDriver` loads on the host JVM.
+        // JVM-only test that needs a real SQLite engine for the DAO SQL.
+        // `sqlite-bundled-jvm` supplies the desktop native the Android AAR lacks, so
+        // `BundledSQLiteDriver` loads on the host JVM. (Roborazzi snapshot tests live
+        // in :composeApp — a classic app module where composeResources can be staged
+        // onto the test classpath; see that module's ScreenSnapshotTest.)
         getByName("androidHostTest").dependencies {
             implementation(libs.sqlite.bundled.jvm)
-
-            // Roborazzi renders the real Compose screens on the host JVM through
-            // Robolectric's native graphics. `compose.uiTest` is the CMP-aligned
-            // test infra `captureRoboImage { }` drives.
             implementation(libs.junit)
             implementation(libs.robolectric)
             implementation(libs.androidx.test.core)
-            implementation(libs.roborazzi)
-            implementation(libs.roborazzi.compose)
-            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-            implementation(compose.uiTest)
         }
     }
 }
@@ -177,14 +170,14 @@ compose.resources {
     generateResClass = always
 }
 
-// SKIE is applied (plugin present) but DISABLED: v0.10.13 — the latest — does not
-// yet support Kotlin 2.4.10 ("SKIE 0.10.13 does not support Kotlin 2.4.10 … wait
-// for the SKIE developers"). SKIE typically catches up a few days after a Kotlin
-// release. Until then the iOS StateFlow->SwiftUI bridge is hand-rolled in
-// iosMain/TickerDetailBridge.kt. Flip this to `true` (and drop the manual bridge)
-// once a SKIE build supports 2.4.10.
+// SKIE turns the raw Obj-C export into idiomatic Swift: StateFlow -> AsyncSequence,
+// suspend -> async/await, sealed -> enum. Enabled here (Kotlin is pinned to 2.4.0,
+// which SKIE 0.10.13 supports). Because of it, iOS observes the shared ViewModel's
+// StateFlow natively (see iosApp/.../TickerDetailView.swift) with no hand-rolled
+// bridge. If Kotlin is ever bumped past what SKIE supports, either wait for a SKIE
+// release or set `isEnabled = false` and re-introduce a manual Flow collector.
 skie {
-    isEnabled = false
+    isEnabled = true
 }
 
 // Room 3.0 registers its extension as `room3` (not `room` as in Room 2.x).
