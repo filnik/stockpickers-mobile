@@ -1,0 +1,38 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Local configuration — contains sdk.dir AND the Supabase anon key. NEVER commit.
+local.properties
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.cxx/
+output.json
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Kotlin / Native
+.kotlin/
+kotlin-js-store/
+
+# Xcode / iOS
+xcuserdata/
+*.xcuserstate
+DerivedData/
+Pods/
+*.xcworkspace/xcshareddata/
+
+# macOS
+.DS_Store
