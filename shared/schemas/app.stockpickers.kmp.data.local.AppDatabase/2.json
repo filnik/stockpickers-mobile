@@ -1,0 +1,150 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "011a80d4a9cf09a5c2cdaeb3ce02a499",
+    "entities": [
+      {
+        "tableName": "tickers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ticker` TEXT NOT NULL, `name` TEXT, `country` TEXT, `sector` TEXT, `priceEur` REAL, `updatedAt` TEXT, `clenow` REAL, `mom1m` REAL, `mom2m` REAL, `mom3m` REAL, `mom12m` REAL, `forwardPe` REAL, `peg` REAL, `roic` REAL, `r2` REAL, `qualityPasses` INTEGER, `qualityReason` TEXT, `qualityFailedFilter` TEXT, `wyckoffMarkdown` INTEGER, `duplicateOf` TEXT, PRIMARY KEY(`ticker`))",
+        "fields": [
+          {
+            "fieldPath": "ticker",
+            "columnName": "ticker",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "country",
+            "columnName": "country",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sector",
+            "columnName": "sector",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "priceEur",
+            "columnName": "priceEur",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clenow",
+            "columnName": "clenow",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom1m",
+            "columnName": "mom1m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom2m",
+            "columnName": "mom2m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom3m",
+            "columnName": "mom3m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom12m",
+            "columnName": "mom12m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "forwardPe",
+            "columnName": "forwardPe",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "peg",
+            "columnName": "peg",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "roic",
+            "columnName": "roic",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "r2",
+            "columnName": "r2",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "qualityPasses",
+            "columnName": "qualityPasses",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "qualityReason",
+            "columnName": "qualityReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "qualityFailedFilter",
+            "columnName": "qualityFailedFilter",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "wyckoffMarkdown",
+            "columnName": "wyckoffMarkdown",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "duplicateOf",
+            "columnName": "duplicateOf",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "ticker"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `lastSyncedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "lastSyncedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '011a80d4a9cf09a5c2cdaeb3ce02a499')"
+    ]
+  }
+}

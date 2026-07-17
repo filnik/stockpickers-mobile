@@ -36,3 +36,24 @@ enum class MomentumWindow(val apiKey: String, val label: String) {
     TWO_MONTHS("2m", "2M"),
     THREE_MONTHS("3m", "3M"),
 }
+
+/**
+ * The leaders board's ranking key — mirror of the web's `AcceleratingSort` +
+ * `SORT_KEY` (`investing/web/lib/picks-filters.ts`), whose tabs are
+ * `Forza · 1M · 2M · 3M` (`components/picks/AcceleratingTabs.tsx`).
+ *
+ * [STRENGTH] ("Forza", the web's `aggregate`) ranks by `clenow` — the global
+ * trend-strength leader — and is the default, first tab. The other three rank by
+ * their momentum window. The quality gate is IDENTICAL for every sort, so
+ * changing the ranking key can never surface a name the gate wouldn't admit.
+ *
+ * [window] is null exactly for [STRENGTH]: it is what tells the UI to show the
+ * clenow score rather than a momentum reading, and the DAO to skip the
+ * window-presence check (there is no window to require).
+ */
+enum class LeaderSort(val sortKey: String, val label: String, val window: MomentumWindow?) {
+    STRENGTH("aggregate", "Forza", null),
+    ONE_MONTH(MomentumWindow.ONE_MONTH.apiKey, "1M", MomentumWindow.ONE_MONTH),
+    TWO_MONTHS(MomentumWindow.TWO_MONTHS.apiKey, "2M", MomentumWindow.TWO_MONTHS),
+    THREE_MONTHS(MomentumWindow.THREE_MONTHS.apiKey, "3M", MomentumWindow.THREE_MONTHS),
+}

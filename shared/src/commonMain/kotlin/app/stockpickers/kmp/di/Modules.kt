@@ -6,9 +6,14 @@ import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.buildDatabase
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.repository.TickerRepositoryImpl
+import app.stockpickers.kmp.domain.GetGeoCountsUseCase
 import app.stockpickers.kmp.domain.GetMomentumLeadersUseCase
+import app.stockpickers.kmp.domain.GetTickerDetailUseCase
+import app.stockpickers.kmp.domain.ObserveLastSyncedAtUseCase
+import app.stockpickers.kmp.domain.RefreshTickersUseCase
 import app.stockpickers.kmp.domain.TickerRepository
 import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
+import app.stockpickers.kmp.presentation.TickerDetailViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpTimeout
@@ -51,8 +56,24 @@ val coreModule = module {
 
     single<TickerRepository> { TickerRepositoryImpl(api = get(), dao = get()) }
     single { GetMomentumLeadersUseCase(get()) }
+    single { GetGeoCountsUseCase(get()) }
+    single { GetTickerDetailUseCase(get()) }
+    single { ObserveLastSyncedAtUseCase(get()) }
+    single { RefreshTickersUseCase(get()) }
 
-    viewModel { MomentumLeadersViewModel(repository = get(), getMomentumLeaders = get()) }
+    viewModel {
+        MomentumLeadersViewModel(
+            getMomentumLeaders = get(),
+            getGeoCounts = get(),
+            observeLastSyncedAt = get(),
+            refreshTickers = get(),
+        )
+    }
+    // `params.get()` pulls the AppNavKey.TickerDetail handed over by the
+    // EntryProvider's `parametersOf(key)`; the rest is resolved from the graph.
+    viewModel { params ->
+        TickerDetailViewModel(navKey = params.get(), getTickerDetail = get())
+    }
 }
 
 fun initKoin(appDeclaration: KoinApplication.() -> Unit = {}) = startKoin {

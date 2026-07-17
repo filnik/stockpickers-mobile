@@ -5,9 +5,12 @@ import androidx.room3.Database
 import androidx.room3.RoomDatabase
 import androidx.room3.RoomDatabaseConstructor
 
+// v2 added `tickers.qualityReason` / `tickers.qualityFailedFilter`. No Migration is
+// written on purpose: every row here is a re-downloadable cache, and the builder
+// already declares `fallbackToDestructiveMigration(dropAllTables = true)`.
 @Database(
     entities = [TickerEntity::class, SyncMetadataEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @ConstructedBy(AppDatabaseConstructor::class)

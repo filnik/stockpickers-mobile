@@ -11,6 +11,8 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
+    alias(libs.plugins.skie)
+    alias(libs.plugins.roborazzi)
 }
 
 // --- Secrets: read from local.properties (git-ignored) and generate a Kotlin source ---
@@ -61,6 +63,15 @@ kotlin {
                 compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
             }
         }
+        // AGP 9 KMP library: JVM unit tests are OPT-IN. This creates the `hostTest`
+        // compilation + the `androidHostTest` source set (the plugin's name for what
+        // classic KMP calls `androidUnitTest`), and its `testAndroidHostTest` task.
+        // `includeAndroidResources` lets Robolectric/Roborazzi read the Compose
+        // resources the screens render; `returnDefaultValues` stubs the android.jar.
+        withHostTest {
+            isReturnDefaultValues = true
+            isIncludeAndroidResources = true
+        }
     }
     // NOTE: iosX64 (the Intel simulator) is intentionally ABSENT.
     // Compose Multiplatform 1.11.1 publishes no iosX64 artifacts — the last
@@ -70,7 +81,16 @@ kotlin {
         iosTarget.binaries.framework {
             baseName = "Shared"
             isStatic = true
+            // Without an explicit bundle ID the linker warns:
+            // "Cannot infer a bundle ID from packages of source files ...".
+            binaryOption("bundleId", "app.stockpickers.kmp.shared")
         }
+    }
+
+    // `expect class DatabaseBuilderFactory` / `expect val platformModule` are
+    // Beta and warn on every compile. The API is stable in practice for KMP.
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
     }
 
     sourceSets {
@@ -99,6 +119,9 @@ kotlin {
                 implementation(libs.lifecycle.viewmodel)
                 implementation(libs.lifecycle.viewmodel.compose)
                 implementation(libs.lifecycle.runtime.compose)
+                implementation(libs.lifecycle.viewmodel.navigation3)
+
+                implementation(libs.navigation3.ui)
             }
         }
         androidMain {
@@ -113,7 +136,55 @@ kotlin {
                 implementation(libs.ktor.client.darwin)
             }
         }
+        // Shared, framework-free tests: run on JVM (androidHostTest) AND iOS
+        // (iosSimulatorArm64Test). kotlin.test + Turbine + hand-written fakes only —
+        // no MockK (JVM-only), no Room actual (needs a platform SQLite driver).
+        commonTest {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.turbine)
+                implementation(libs.kotlinx.coroutines.test)
+                implementation(libs.ktor.client.mock)
+            }
+        }
+        // JVM-only tests that need a real SQLite engine (the DAO SQL) or Robolectric
+        // (Roborazzi snapshots). `sqlite-bundled-jvm` supplies the desktop native the
+        // Android AAR lacks, so `BundledSQLiteDriver` loads on the host JVM.
+        getByName("androidHostTest").dependencies {
+            implementation(libs.sqlite.bundled.jvm)
+
+            // Roborazzi renders the real Compose screens on the host JVM through
+            // Robolectric's native graphics. `compose.uiTest` is the CMP-aligned
+            // test infra `captureRoboImage { }` drives.
+            implementation(libs.junit)
+            implementation(libs.robolectric)
+            implementation(libs.androidx.test.core)
+            implementation(libs.roborazzi)
+            implementation(libs.roborazzi.compose)
+            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
+        }
     }
+}
+
+// Compose Multiplatform string/image resources. A stable, explicit package for the
+// generated `Res` accessor (default would derive one from the module group) so the
+// import path is predictable from Kotlin: `app.stockpickers.kmp.resources.Res`.
+// `generateResClass = always` forces generation even though this is a library module.
+compose.resources {
+    publicResClass = true
+    packageOfResClass = "app.stockpickers.kmp.resources"
+    generateResClass = always
+}
+
+// SKIE is applied (plugin present) but DISABLED: v0.10.13 — the latest — does not
+// yet support Kotlin 2.4.10 ("SKIE 0.10.13 does not support Kotlin 2.4.10 … wait
+// for the SKIE developers"). SKIE typically catches up a few days after a Kotlin
+// release. Until then the iOS StateFlow->SwiftUI bridge is hand-rolled in
+// iosMain/TickerDetailBridge.kt. Flip this to `true` (and drop the manual bridge)
+// once a SKIE build supports 2.4.10.
+skie {
+    isEnabled = false
 }
 
 // Room 3.0 registers its extension as `room3` (not `room` as in Room 2.x).

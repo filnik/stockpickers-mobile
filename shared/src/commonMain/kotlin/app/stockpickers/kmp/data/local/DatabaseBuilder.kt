@@ -2,7 +2,7 @@ package app.stockpickers.kmp.data.local
 
 import androidx.room3.RoomDatabase
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import kotlinx.coroutines.Dispatchers
+import app.stockpickers.kmp.util.ioDispatcher
 
 /**
  * Each platform knows only how to locate the database file; the rest of the
@@ -15,6 +15,6 @@ expect class DatabaseBuilderFactory {
 fun DatabaseBuilderFactory.buildDatabase(): AppDatabase =
     create()
         .setDriver(BundledSQLiteDriver())
-        .setQueryCoroutineContext(Dispatchers.IO)
+        .setQueryCoroutineContext(ioDispatcher)
         .fallbackToDestructiveMigration(dropAllTables = true)
         .build()

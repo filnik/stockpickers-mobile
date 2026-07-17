@@ -10,6 +10,22 @@ koin = "4.2.2"
 serialization = "1.11.0"
 coroutines = "1.11.0"
 lifecycle = "2.11.0"
+skie = "0.10.13"
+
+# --- Test ---
+turbine = "1.2.1"
+# kotlinx-coroutines-test tracks the coroutines version (see `coroutines` above).
+roborazzi = "1.68.0"
+robolectric = "4.14.1"
+junit = "4.13.2"
+androidxTest = "1.6.1"
+
+# Navigation 3.
+# `androidx.navigation3:navigation3-ui` publishes ONLY android + *stubs* variants —
+# no iOS — so the UI layer (NavDisplay) MUST come from the JetBrains CMP port.
+# `androidx.navigation3:navigation3-runtime` IS multiplatform (iosArm64 etc.) and
+# is pulled in transitively by the JetBrains artifact; don't declare it twice.
+navigation3 = "1.2.0-alpha02"
 androidxActivityCompose = "1.11.0"
 androidxCoreKtx = "1.17.0"
 
@@ -31,6 +47,10 @@ ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "kto
 room-runtime = { module = "androidx.room3:room3-runtime", version.ref = "room" }
 room-compiler = { module = "androidx.room3:room3-compiler", version.ref = "room" }
 sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqlite" }
+# Desktop (host-JVM) natives for BundledSQLiteDriver. The androidMain `sqlite-bundled`
+# resolves to the -android AAR, which carries only Android .so — the host test JVM
+# needs the jvm-classified artifact to run the real DAO SQL. See androidHostTest.
+sqlite-bundled-jvm = { module = "androidx.sqlite:sqlite-bundled-jvm", version.ref = "sqlite" }
 
 # --- Koin (classic DSL, no annotations/KSP) ---
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
@@ -46,10 +66,33 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "lifecycle" }
 lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+# Scopes a ViewModelStore to each NavEntry. JetBrains build: the androidx one
+# does publish iOS artifacts too, but staying on org.jetbrains.androidx keeps the
+# whole lifecycle stack on a single, mutually-consistent set of versions.
+lifecycle-viewmodel-navigation3 = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycle" }
+
+# --- Navigation 3 (JetBrains CMP port — see version comment above) ---
+navigation3-ui = { module = "org.jetbrains.androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
 
 # --- Android app ---
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCoreKtx" }
+
+# --- Test (multiplatform: commonTest) ---
+turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+# Same version as kotlinx-coroutines-core so the test dispatchers match the runtime.
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+# Fake HTTP transport for SupabaseScannerApi (which is a final class): a MockEngine
+# is the least-invasive "fake API" — no production interface extraction needed.
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
+
+# --- Test (JVM only: androidHostTest — Room real SQL + Roborazzi snapshots) ---
+junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTest" }
+roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
+roborazzi-rule = { module = "io.github.takahirom.roborazzi:roborazzi-junit-rule", version.ref = "roborazzi" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
@@ -62,3 +105,8 @@ composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "compose" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 room = { id = "androidx.room3", version.ref = "room" }
+# SKIE — Swift-friendly interop over the ObjC header (Flow -> AsyncSequence,
+# sealed -> enum, suspend -> async). Applied to the framework-producing module.
+skie = { id = "co.touchlab.skie", version.ref = "skie" }
+# Roborazzi — JVM/Robolectric screenshot tests. Hooks the androidHostTest task.
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }

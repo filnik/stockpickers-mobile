@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ============================================================ -->
+    <!-- Momentum Leaders screen                                      -->
+    <!-- ============================================================ -->
+    <string name="leaders_title">Momentum Leaders</string>
+
+    <!-- Ranking tabs. Only STRENGTH is a word; 1M/2M/3M are domain symbols
+         kept as literals in LeaderSort (see Ticker.kt). -->
+    <string name="sort_strength">Strength</string>
+
+    <!-- Country chip. USA/ITA/ASIA (with flag) are domain symbols kept in
+         GeoFilter; only the "everything" chip is a translatable word. -->
+    <string name="geo_all">All</string>
+
+    <!-- Sync status line under the title -->
+    <string name="sync_syncing">Syncing…</string>
+    <string name="sync_never">Never synced</string>
+    <string name="sync_last">Last synced %1$s</string>
+
+    <!-- Relative "x ago" fragments fed into sync_last -->
+    <string name="time_just_now">just now</string>
+    <string name="time_minutes_ago">%1$dm ago</string>
+    <string name="time_hours_ago">%1$dh ago</string>
+    <string name="time_days_ago">%1$dd ago</string>
+
+    <!-- Empty board. %1$s = sort label, %2$s = geo label (may contain a flag). -->
+    <string name="empty_all">No leaders for %1$s</string>
+    <string name="empty_geo">No %1$s leaders for %2$s</string>
+
+    <!-- Offline / error surfaces -->
+    <string name="snackbar_offline_cached">Offline — showing cached data</string>
+    <string name="state_error">Unable to load leaders</string>
+    <string name="action_retry">Retry</string>
+
+    <!-- The clenow score caption under each card metric. "clenow" is the name of
+         the indicator (a surname), not a word to translate. -->
+    <string name="caption_clenow" translatable="false">clenow</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_offline">Offline</string>
+    <string name="cd_refresh">Refresh</string>
+    <string name="cd_back">Back</string>
+
+    <!-- ============================================================ -->
+    <!-- Ticker detail screen                                         -->
+    <!-- ============================================================ -->
+    <string name="detail_not_cached">Not in cache</string>
+    <string name="detail_pipeline_updated">Pipeline updated %1$s</string>
+
+    <string name="detail_momentum">Momentum</string>
+
+    <string name="detail_trend_quality">Trend quality</string>
+    <string name="detail_clenow_score">Clenow score</string>
+    <!-- R² is a domain symbol; only the "(fit)" gloss is translatable. -->
+    <string name="detail_r2_fit">R² (fit)</string>
+
+    <string name="detail_fundamentals">Fundamentals</string>
+    <!-- P/E is a domain symbol; "Forward" is the translatable word. -->
+    <string name="detail_forward_pe">Forward P/E</string>
+    <!-- Pure domain symbols — same in every language. -->
+    <string name="detail_peg" translatable="false">PEG</string>
+    <string name="detail_roic" translatable="false">ROIC</string>
+
+    <string name="detail_quality_gate">Quality gate</string>
+    <string name="quality_passes">Passes quality filters</string>
+    <string name="quality_rejected">Rejected by quality gate</string>
+    <string name="quality_not_evaluated">Not evaluated</string>
+    <string name="quality_failed_filter">Failed filter</string>
+</resources>

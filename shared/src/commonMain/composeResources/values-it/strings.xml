@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Momentum Leaders screen -->
+    <string name="leaders_title">Momentum Leaders</string>
+    <string name="sort_strength">Forza</string>
+    <string name="geo_all">Tutti</string>
+
+    <string name="sync_syncing">Sincronizzazione…</string>
+    <string name="sync_never">Mai sincronizzato</string>
+    <string name="sync_last">Ultima sincronizzazione %1$s</string>
+
+    <string name="time_just_now">proprio ora</string>
+    <string name="time_minutes_ago">%1$d min fa</string>
+    <string name="time_hours_ago">%1$d h fa</string>
+    <string name="time_days_ago">%1$d g fa</string>
+
+    <string name="empty_all">Nessun leader per %1$s</string>
+    <string name="empty_geo">Nessun leader %1$s per %2$s</string>
+
+    <string name="snackbar_offline_cached">Offline — dati in cache</string>
+    <string name="state_error">Impossibile caricare i leader</string>
+    <string name="action_retry">Riprova</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_offline">Offline</string>
+    <string name="cd_refresh">Aggiorna</string>
+    <string name="cd_back">Indietro</string>
+
+    <!-- Ticker detail screen -->
+    <string name="detail_not_cached">Non in cache</string>
+    <string name="detail_pipeline_updated">Pipeline aggiornata %1$s</string>
+
+    <string name="detail_momentum">Momentum</string>
+
+    <string name="detail_trend_quality">Qualità del trend</string>
+    <string name="detail_clenow_score">Punteggio Clenow</string>
+    <string name="detail_r2_fit">R² (adattamento)</string>
+
+    <string name="detail_fundamentals">Fondamentali</string>
+    <string name="detail_forward_pe">P/E prospettico</string>
+
+    <string name="detail_quality_gate">Filtro qualità</string>
+    <string name="quality_passes">Supera i filtri di qualità</string>
+    <string name="quality_rejected">Respinto dal filtro qualità</string>
+    <string name="quality_not_evaluated">Non valutato</string>
+    <string name="quality_failed_filter">Filtro fallito</string>
+</resources>

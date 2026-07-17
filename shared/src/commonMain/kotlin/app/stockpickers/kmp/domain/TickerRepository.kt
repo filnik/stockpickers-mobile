@@ -13,8 +13,26 @@ interface TickerRepository {
      * Offline-first: this Flow is backed by Room and is the ONLY source the UI
      * observes. It emits cached data immediately and re-emits after every
      * successful sync. It never touches the network.
+     *
+     * [sort] picks the ranking key, [geo] the country chip. Both are applied in
+     * SQL, over the whole cached universe, with the chip filtered BEFORE the
+     * limit — so this returns the top [limit] OF THAT BUCKET.
      */
-    fun observeMomentumLeaders(window: MomentumWindow, limit: Int = 10): Flow<List<Ticker>>
+    fun observeMomentumLeaders(
+        sort: LeaderSort,
+        geo: GeoFilter = GeoFilter.ALL,
+        limit: Int = 10,
+    ): Flow<List<Ticker>>
+
+    /** How many rows qualify per country chip under [sort]. Not limited. */
+    fun observeGeoCounts(sort: LeaderSort): Flow<GeoCounts>
+
+    /**
+     * One row by ticker, from the same Room cache. Emits null when the ticker is
+     * not (or no longer) cached. Like [observeMomentumLeaders], it never touches
+     * the network.
+     */
+    fun observeTicker(ticker: String): Flow<TickerDetail?>
 
     /** Epoch millis of the last SUCCESSFUL sync, or null if never synced. */
     fun observeLastSyncedAt(): Flow<Long?>

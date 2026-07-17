@@ -1,13 +1,18 @@
 package app.stockpickers.kmp.data.repository
 
+import app.stockpickers.kmp.data.local.GeoCountsRow
 import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.SyncMetadataEntity
 import app.stockpickers.kmp.data.local.TickerEntity
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.remote.TickerDto
-import app.stockpickers.kmp.domain.MomentumWindow
+import app.stockpickers.kmp.domain.GeoCounts
+import app.stockpickers.kmp.domain.GeoFilter
+import app.stockpickers.kmp.domain.LeaderSort
+import app.stockpickers.kmp.domain.QualityGate
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.domain.Ticker
+import app.stockpickers.kmp.domain.TickerDetail
 import app.stockpickers.kmp.domain.TickerRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -20,8 +25,18 @@ class TickerRepositoryImpl(
     private val dao: ScannerDao,
 ) : TickerRepository {
 
-    override fun observeMomentumLeaders(window: MomentumWindow, limit: Int): Flow<List<Ticker>> =
-        dao.observeMomentumLeaders(window.apiKey, limit).map { rows -> rows.map(TickerEntity::toDomain) }
+    override fun observeMomentumLeaders(
+        sort: LeaderSort,
+        geo: GeoFilter,
+        limit: Int,
+    ): Flow<List<Ticker>> = dao.observeMomentumLeaders(sort.sortKey, geo.key, limit)
+        .map { rows -> rows.map(TickerEntity::toDomain) }
+
+    override fun observeGeoCounts(sort: LeaderSort): Flow<GeoCounts> =
+        dao.observeGeoCounts(sort.sortKey).map(GeoCountsRow::toDomain)
+
+    override fun observeTicker(ticker: String): Flow<TickerDetail?> =
+        dao.observeTicker(ticker).map { row -> row?.toDetail() }
 
     override fun observeLastSyncedAt(): Flow<Long?> = dao.observeLastSyncedAt()
 
@@ -40,6 +55,13 @@ class TickerRepositoryImpl(
         RefreshResult.Failed(e.message ?: "Unknown error")
     }
 }
+
+private fun GeoCountsRow.toDomain() = GeoCounts(
+    total = total,
+    usa = usa,
+    ita = ita,
+    asia = asia,
+)
 
 private fun TickerDto.toEntity() = TickerEntity(
     ticker = ticker,
@@ -60,8 +82,39 @@ private fun TickerDto.toEntity() = TickerEntity(
     // Flatten Python's verdict. Absent `quality_gate` / absent `passes_filters`
     // both collapse to NULL, which the DAO's `qualityPasses = 1` excludes (fail-safe).
     qualityPasses = qualityGate?.passesFilters,
+    qualityReason = qualityGate?.reason,
+    qualityFailedFilter = qualityGate?.failedFilter,
     wyckoffMarkdown = wyckoffMarkdown,
     duplicateOf = duplicateOf,
+)
+
+private fun TickerEntity.toDetail() = TickerDetail(
+    ticker = ticker,
+    name = name,
+    country = country,
+    sector = sector,
+    priceEur = priceEur,
+    clenow = clenow,
+    mom1m = mom1m,
+    mom2m = mom2m,
+    mom3m = mom3m,
+    mom12m = mom12m,
+    forwardPe = forwardPe,
+    peg = peg,
+    roic = roic,
+    r2 = r2,
+    // Re-inflate the verdict the DTO mapping flattened. All-null members mean the
+    // pipeline published no `quality_gate` at all → surface "unknown", not a gate.
+    qualityGate = if (qualityPasses == null && qualityReason == null && qualityFailedFilter == null) {
+        null
+    } else {
+        QualityGate(
+            passesFilters = qualityPasses,
+            reason = qualityReason,
+            failedFilter = qualityFailedFilter,
+        )
+    },
+    updatedAt = updatedAt,
 )
 
 private fun TickerEntity.toDomain() = Ticker(

@@ -10,6 +10,10 @@ import androidx.room3.PrimaryKey
  * `qualityPasses` is the FLATTENED `quality_gate.passes_filters` verdict. It is
  * deliberately nullable so the DAO can apply the fail-safe rule (a row whose
  * verdict is missing must be excluded, not assumed good).
+ *
+ * `qualityReason` / `qualityFailedFilter` are the other two flattened members of
+ * the same upstream `quality_gate` object. They carry no filtering logic — the
+ * detail screen shows them so a user can see WHY a row was rejected.
  */
 @Entity(tableName = "tickers")
 data class TickerEntity(
@@ -29,6 +33,8 @@ data class TickerEntity(
     val roic: Double?,
     val r2: Double?,
     val qualityPasses: Boolean?,
+    val qualityReason: String?,
+    val qualityFailedFilter: String?,
     val wyckoffMarkdown: Boolean?,
     val duplicateOf: String?,
 )

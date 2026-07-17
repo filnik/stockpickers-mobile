@@ -26,15 +26,20 @@ internal fun formatMomentum(fraction: Double?): String =
 
 internal fun formatClenow(value: Double?): String = value?.format(2) ?: "—"
 
-/** Coarse "x ago" label; good enough for a sync indicator. */
-internal fun formatRelativeTime(epochMillis: Long, nowMillis: Long): String {
-    val diff = nowMillis - epochMillis
-    if (diff < 0) return "just now"
-    val minutes = diff / 60_000
-    return when {
-        minutes < 1 -> "just now"
-        minutes < 60 -> "${minutes}m ago"
-        minutes < 24 * 60 -> "${minutes / 60}h ago"
-        else -> "${minutes / (24 * 60)}d ago"
-    }
-}
+/**
+ * A plain ratio (P/E, PEG, R²). Unitless — do NOT append '%'.
+ * Mirrors the web client's `ratio()` (investing/web `analisi-titolo`).
+ */
+internal fun formatRatio(value: Double?, decimals: Int = 2): String =
+    value?.format(decimals) ?: "—"
+
+/**
+ * ROIC is a decimal FRACTION upstream (0.18 → "18.0%"), exactly like `mom_*`.
+ * Authority: `RichPickCard.tsx` renders it as `formatNumberIt(v * 100, 0)%`.
+ * Unlike [formatMomentum] it carries no explicit '+' — it is a level, not a delta.
+ */
+internal fun formatPercent(fraction: Double?): String =
+    fraction?.let { (it * 100).format(1) + "%" } ?: "—"
+
+internal fun formatPriceEur(value: Double?): String =
+    value?.let { "€" + it.format(2) } ?: "—"
