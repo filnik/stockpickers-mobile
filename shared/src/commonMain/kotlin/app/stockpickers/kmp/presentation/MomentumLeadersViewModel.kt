@@ -58,7 +58,7 @@ class MomentumLeadersViewModel(
             leaders = leaders,
             isLoading = false,
             isRefreshing = refresh.isRefreshing,
-            isOffline = refresh.lastFailure != null,
+            isOffline = refresh.isOffline,
             lastSyncedAt = lastSyncedAt,
             errorMessage = refresh.lastFailure,
         )
@@ -81,18 +81,28 @@ class MomentumLeadersViewModel(
         viewModelScope.launch {
             refreshState.value = refreshState.value.copy(isRefreshing = true)
             refreshState.value = when (val result = repository.refresh()) {
-                is RefreshResult.Success -> RefreshUiState(isRefreshing = false, lastFailure = null)
-                is RefreshResult.Failed -> RefreshUiState(isRefreshing = false, lastFailure = result.message)
+                is RefreshResult.Success ->
+                    RefreshUiState(isRefreshing = false, isOffline = false, lastFailure = null)
+                is RefreshResult.Failed ->
+                    RefreshUiState(isRefreshing = false, isOffline = true, lastFailure = result.message)
             }
         }
     }
 
+    /**
+     * Dismisses the one-shot error message only. [RefreshUiState.isOffline] is
+     * deliberately NOT cleared here: the banner is transient, but the offline
+     * badge must stay up until a sync actually succeeds.
+     */
     fun dismissError() {
         refreshState.value = refreshState.value.copy(lastFailure = null)
     }
 
     private data class RefreshUiState(
         val isRefreshing: Boolean = false,
+        /** Sticky: only a successful refresh clears it. */
+        val isOffline: Boolean = false,
+        /** One-shot, for the snackbar. */
         val lastFailure: String? = null,
     )
 }
