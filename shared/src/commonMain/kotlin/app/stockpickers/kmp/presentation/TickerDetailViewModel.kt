@@ -114,6 +114,15 @@ class TickerDetailViewModel(
                 }
             }
         }
+
+        // Warm the OTHER ranges in the background so switching chips is instant. The
+        // default (daily) range's fetch above already warms all four daily ranges in
+        // one call (1Y sliced), so here we only prefetch the two intraday ranges.
+        // Fire-and-forget: failures are swallowed by the use case; the user sees a
+        // loader only if they pick a range before its prefetch lands.
+        for (range in ChartRange.entries.filter { it.isIntraday }) {
+            viewModelScope.launch { refreshPriceSeries(navKey.ticker, range) }
+        }
     }
 
     /**

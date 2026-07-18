@@ -126,32 +126,41 @@ class TickerRepositoryImplTest {
     }
 
     @Test
-    fun WHEN_refreshing_a_range_THEN_it_maps_to_yahoo_range_interval_and_caches_under_that_range() = runTest {
+    fun WHEN_refreshing_a_daily_range_THEN_ONE_1y_fetch_warms_all_four_daily_ranges() = runTest {
         val dao = FakeScannerDao()
         var lastRange: String? = null
         var lastInterval: String? = null
+        var fetchCount = 0
         val repository = TickerRepositoryImpl(
             api = failingApi(),
             dao = dao,
-            chartApi = recordingChartApi { r, i -> lastRange = r; lastInterval = i },
+            chartApi = recordingChartApi { r, i -> lastRange = r; lastInterval = i; fetchCount++ },
             json = json,
         )
 
+        // Refreshing ANY daily range fetches the 1Y daily series ONCE and slices it
+        // into all four daily rows — one network call instead of four.
         repository.refreshPriceSeries("DAVE", ChartRange.ONE_MONTH)
 
-        // The enum's Yahoo tokens reached the query (daily candles for 1M).
-        assertEquals("1mo", lastRange)
-        assertEquals("1d", lastInterval)
+        assertEquals(1, fetchCount)      // a single Yahoo call...
+        assertEquals("1y", lastRange)    // ...for the widest daily window,
+        assertEquals("1d", lastInterval) // at daily candles.
 
-        // Cached under ONE_MONTH — with the period change derived from the window's
-        // previous close (110 vs 100).
-        val cached = repository.observePriceSeries("DAVE", ChartRange.ONE_MONTH).first()
-        assertEquals(110.0, cached?.last)
-        assertEquals(10.0, cached?.periodChange)
-        assertEquals(0.1, cached?.periodChangePercent)
+        // All four daily ranges are now cached (warmed by the same fetch). With the
+        // 2-point fixture every window covers both points, so each carries the same
+        // period change derived from the pre-window close (110 vs 100).
+        for (range in listOf(
+            ChartRange.ONE_MONTH, ChartRange.THREE_MONTHS,
+            ChartRange.SIX_MONTHS, ChartRange.ONE_YEAR,
+        )) {
+            val cached = repository.observePriceSeries("DAVE", range).first()
+            assertEquals(110.0, cached?.last, "last for $range")
+            assertEquals(10.0, cached?.periodChange, "periodChange for $range")
+            assertEquals(0.1, cached?.periodChangePercent, "periodChangePercent for $range")
+        }
 
-        // A DIFFERENT range is a distinct cache key — untouched by the 1M fetch.
-        assertNull(repository.observePriceSeries("DAVE", ChartRange.SIX_MONTHS).first())
+        // An intraday range is a distinct cache key — untouched by the daily fetch.
+        assertNull(repository.observePriceSeries("DAVE", ChartRange.ONE_DAY).first())
     }
 
     @Test
