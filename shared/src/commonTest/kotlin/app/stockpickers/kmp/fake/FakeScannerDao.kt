@@ -1,6 +1,7 @@
 package app.stockpickers.kmp.fake
 
 import app.stockpickers.kmp.data.local.GeoCountsRow
+import app.stockpickers.kmp.data.local.PriceSeriesEntity
 import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.SyncMetadataEntity
 import app.stockpickers.kmp.data.local.TickerEntity
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.map
 class FakeScannerDao : ScannerDao {
 
     val rows = MutableStateFlow<List<TickerEntity>>(emptyList())
+    val priceSeries = MutableStateFlow<Map<String, PriceSeriesEntity>>(emptyMap())
     private val syncMetadata = MutableStateFlow<SyncMetadataEntity?>(null)
 
     override fun observeMomentumLeaders(sort: String, geo: String, limit: Int): Flow<List<TickerEntity>> =
@@ -44,4 +46,14 @@ class FakeScannerDao : ScannerDao {
     }
 
     override fun observeLastSyncedAt(): Flow<Long?> = syncMetadata.map { it?.lastSyncedAt }
+
+    override fun observePriceSeries(ticker: String): Flow<PriceSeriesEntity?> =
+        priceSeries.map { it[ticker] }
+
+    override suspend fun upsertPriceSeries(series: PriceSeriesEntity) {
+        priceSeries.value = priceSeries.value + (series.ticker to series)
+    }
+
+    override suspend fun getPriceSeriesFetchedAt(ticker: String): Long? =
+        priceSeries.value[ticker]?.fetchedAt
 }

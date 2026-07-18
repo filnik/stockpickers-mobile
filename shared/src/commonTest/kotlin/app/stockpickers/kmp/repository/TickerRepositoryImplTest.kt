@@ -3,6 +3,7 @@ package app.stockpickers.kmp.repository
 import app.cash.turbine.test
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.remote.TickerDto
+import app.stockpickers.kmp.data.remote.YahooChartApi
 import app.stockpickers.kmp.data.repository.TickerRepositoryImpl
 import app.stockpickers.kmp.domain.LeaderSort
 import app.stockpickers.kmp.domain.RefreshResult
@@ -60,10 +61,20 @@ class TickerRepositoryImplTest {
         )
     }
 
+    // These tests exercise the scanner cache, not the chart. A chart API whose
+    // every request 404s keeps the constructor happy without touching Yahoo.
+    private fun unusedChartApi(): YahooChartApi {
+        val engine = MockEngine { respond(content = "", status = HttpStatusCode.NotFound) }
+        return YahooChartApi(HttpClient(engine) { install(ContentNegotiation) { json(json) } })
+    }
+
+    private fun repository(api: SupabaseScannerApi, dao: FakeScannerDao) =
+        TickerRepositoryImpl(api = api, dao = dao, chartApi = unusedChartApi(), json = json)
+
     @Test
     fun WHEN_refresh_succeeds_THEN_rows_are_upserted_and_observable_from_the_dao() = runTest {
         val dao = FakeScannerDao()
-        val repository = TickerRepositoryImpl(successApi(TickerDtoModelCreator.list(2)), dao)
+        val repository = repository(successApi(TickerDtoModelCreator.list(2)), dao)
 
         repository.observeMomentumLeaders(LeaderSort.STRENGTH).test {
             assertEquals(emptyList(), awaitItem()) // cache starts empty
@@ -79,7 +90,7 @@ class TickerRepositoryImplTest {
     @Test
     fun WHEN_refresh_succeeds_THEN_last_synced_at_is_recorded() = runTest {
         val dao = FakeScannerDao()
-        val repository = TickerRepositoryImpl(successApi(TickerDtoModelCreator.list(1)), dao)
+        val repository = repository(successApi(TickerDtoModelCreator.list(1)), dao)
 
         assertEquals(RefreshResult.Success, repository.refresh())
 
@@ -94,7 +105,7 @@ class TickerRepositoryImplTest {
         val dao = FakeScannerDao()
         // Seed a warm cache first.
         dao.upsertAll(TickerEntityModelCreator.list(3))
-        val repository = TickerRepositoryImpl(failingApi(), dao)
+        val repository = repository(failingApi(), dao)
 
         repository.observeMomentumLeaders(LeaderSort.STRENGTH).test {
             assertEquals(3, awaitItem().size) // warm cache

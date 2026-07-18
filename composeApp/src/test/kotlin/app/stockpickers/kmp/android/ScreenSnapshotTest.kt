@@ -5,9 +5,12 @@ import androidx.compose.material3.MaterialTheme
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
+import app.stockpickers.kmp.domain.PricePoint
+import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.QualityGate
 import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.domain.TickerDetail
+import kotlin.math.sin
 import app.stockpickers.kmp.presentation.MomentumLeadersUiState
 import app.stockpickers.kmp.presentation.TickerDetailUiState
 import app.stockpickers.kmp.ui.MomentumLeadersScreen
@@ -70,8 +73,29 @@ class ScreenSnapshotTest {
             qualityGate = QualityGate(passesFilters = true, reason = null, failedFilter = null),
             updatedAt = "2026-01-15T10:00:00Z",
         ),
+        priceSeries = pricesFixture(),
         isLoading = false,
     )
+
+    /**
+     * A deterministic ~6-month daily close series (rising, with a wave), so the
+     * Vico chart renders identically each run. Stands in for a live Yahoo fetch —
+     * the snapshot never touches the network.
+     */
+    private fun pricesFixture(): PriceSeries {
+        val baseEpoch = 1_700_000_000L
+        val points = (0 until 126).map { i ->
+            val close = 50.0 + i * 0.9 + 8.0 * sin(i / 7.0)
+            PricePoint(epochSeconds = baseEpoch + i * 86_400L, close = close)
+        }
+        return PriceSeries(
+            ticker = "AAPL",
+            currency = "USD",
+            last = points.last().close,
+            previousClose = points[points.lastIndex - 1].close,
+            points = points,
+        )
+    }
 
     private fun sampleTickers(): List<Ticker> = listOf(
         Ticker("DAVE", "Dave Inc.", "United States", "Technology", null, 7.42, 0.482, 0.30, 0.28, 1.31, 20.8, 0.09, 0.578, 0.26),

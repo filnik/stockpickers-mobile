@@ -39,6 +39,26 @@ data class TickerEntity(
     val duplicateOf: String?,
 )
 
+/**
+ * Cached Yahoo Finance price history for one ticker, backing the detail chart.
+ * Offline-first, exactly like [TickerEntity]: the UI observes this table and the
+ * network only ever writes into it.
+ *
+ * [pointsJson] is a `List<PricePoint>` serialized with kotlinx (Room stores no
+ * lists natively and this cache is disposable, so a JSON column is simpler than a
+ * join table). [fetchedAt] is the local wall-clock (epoch millis) of the fetch,
+ * used to skip refetching while the cache is still fresh (~6h).
+ */
+@Entity(tableName = "price_series")
+data class PriceSeriesEntity(
+    @PrimaryKey val ticker: String,
+    val currency: String?,
+    val last: Double?,
+    val previousClose: Double?,
+    val pointsJson: String,
+    val fetchedAt: Long,
+)
+
 /** Single-row table holding sync bookkeeping (id is always [SYNC_ID]). */
 @Entity(tableName = "sync_metadata")
 data class SyncMetadataEntity(

@@ -43,3 +43,11 @@ internal fun formatPercent(fraction: Double?): String =
 
 internal fun formatPriceEur(value: Double?): String =
     value?.let { "€" + it.format(2) } ?: "—"
+
+/**
+ * The live quote for the price chart: the value followed by its ISO currency code
+ * (e.g. "593.00 TWD"). Unlike [formatPriceEur] the currency is Yahoo's, not EUR,
+ * and trails as a code since it can be any market's.
+ */
+internal fun formatQuote(value: Double?, currency: String?): String =
+    value?.let { v -> currency?.let { "${v.format(2)} $it" } ?: v.format(2) } ?: "—"

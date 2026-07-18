@@ -144,6 +144,17 @@ interface ScannerDao {
     @Query("SELECT COUNT(*) FROM tickers")
     suspend fun count(): Int
 
+    /** Cached price history for the detail chart. Emits null while uncached. */
+    @Query("SELECT * FROM price_series WHERE ticker = :ticker LIMIT 1")
+    fun observePriceSeries(ticker: String): Flow<PriceSeriesEntity?>
+
+    @Upsert
+    suspend fun upsertPriceSeries(series: PriceSeriesEntity)
+
+    /** Local fetch time (epoch millis) of the cached series, or null if uncached. */
+    @Query("SELECT fetchedAt FROM price_series WHERE ticker = :ticker LIMIT 1")
+    suspend fun getPriceSeriesFetchedAt(ticker: String): Long?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSyncMetadata(metadata: SyncMetadataEntity)
 

@@ -3,6 +3,7 @@ package app.stockpickers.kmp.fake
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
+import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.domain.TickerDetail
@@ -25,10 +26,13 @@ class FakeTickerRepository : TickerRepository {
     val leadersFlow = MutableStateFlow<List<Ticker>>(emptyList())
     val countsFlow = MutableStateFlow(GeoCounts())
     val tickerFlow = MutableStateFlow<TickerDetail?>(null)
+    val priceSeriesFlow = MutableStateFlow<PriceSeries?>(null)
     val lastSyncedFlow = MutableStateFlow<Long?>(null)
 
     var refreshResult: RefreshResult = RefreshResult.Success
     var refreshCount = 0
+        private set
+    var priceSeriesRefreshCount = 0
         private set
     var lastLeadersQuery: Triple<LeaderSort, GeoFilter, Int>? = null
         private set
@@ -47,5 +51,11 @@ class FakeTickerRepository : TickerRepository {
     override suspend fun refresh(): RefreshResult {
         refreshCount++
         return refreshResult
+    }
+
+    override fun observePriceSeries(ticker: String): Flow<PriceSeries?> = priceSeriesFlow
+
+    override suspend fun refreshPriceSeries(ticker: String) {
+        priceSeriesRefreshCount++
     }
 }

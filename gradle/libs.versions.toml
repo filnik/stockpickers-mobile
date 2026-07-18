@@ -15,6 +15,13 @@ serialization = "1.11.0"
 coroutines = "1.11.0"
 lifecycle = "2.11.0"
 skie = "0.10.13"
+# Vico charts — the `multiplatform` artifact (Vico 2.x KMP). 2.5.2 is built against
+# EXACTLY this project's pins (Compose 1.11.1, kotlin-stdlib 2.4.0, coroutines
+# 1.11.0) and publishes iosArm64 + iosSimulatorArm64 variants, so its klibs are
+# ABI-compatible with our Kotlin/Native toolchain. Only the Android detail screen
+# draws a chart today; iOS gets Swift Charts in a later phase and never touches
+# this composable, but Vico still compiles cleanly into the iOS framework.
+vico = "2.5.2"
 
 # --- Test ---
 turbine = "1.2.1"
@@ -77,6 +84,9 @@ lifecycle-viewmodel-navigation3 = { module = "org.jetbrains.androidx.lifecycle:l
 
 # --- Navigation 3 (JetBrains CMP port — see version comment above) ---
 navigation3-ui = { module = "org.jetbrains.androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
+
+# --- Vico charts (multiplatform) ---
+vico-multiplatform = { module = "com.patrykandpatrick.vico:multiplatform", version.ref = "vico" }
 
 # --- Android app ---
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }

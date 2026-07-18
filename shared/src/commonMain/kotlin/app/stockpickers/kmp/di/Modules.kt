@@ -5,11 +5,14 @@ import app.stockpickers.kmp.data.local.DatabaseBuilderFactory
 import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.buildDatabase
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
+import app.stockpickers.kmp.data.remote.YahooChartApi
 import app.stockpickers.kmp.data.repository.TickerRepositoryImpl
 import app.stockpickers.kmp.domain.GetGeoCountsUseCase
 import app.stockpickers.kmp.domain.GetMomentumLeadersUseCase
 import app.stockpickers.kmp.domain.GetTickerDetailUseCase
 import app.stockpickers.kmp.domain.ObserveLastSyncedAtUseCase
+import app.stockpickers.kmp.domain.ObservePriceSeriesUseCase
+import app.stockpickers.kmp.domain.RefreshPriceSeriesUseCase
 import app.stockpickers.kmp.domain.RefreshTickersUseCase
 import app.stockpickers.kmp.domain.TickerRepository
 import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
@@ -50,16 +53,21 @@ val coreModule = module {
         }
     }
     single { SupabaseScannerApi(get()) }
+    single { YahooChartApi(get()) }
 
     single<AppDatabase> { get<DatabaseBuilderFactory>().buildDatabase() }
     single<ScannerDao> { get<AppDatabase>().scannerDao() }
 
-    single<TickerRepository> { TickerRepositoryImpl(api = get(), dao = get()) }
+    single<TickerRepository> {
+        TickerRepositoryImpl(api = get(), dao = get(), chartApi = get(), json = get())
+    }
     single { GetMomentumLeadersUseCase(get()) }
     single { GetGeoCountsUseCase(get()) }
     single { GetTickerDetailUseCase(get()) }
     single { ObserveLastSyncedAtUseCase(get()) }
     single { RefreshTickersUseCase(get()) }
+    single { ObservePriceSeriesUseCase(get()) }
+    single { RefreshPriceSeriesUseCase(get()) }
 
     viewModel {
         MomentumLeadersViewModel(
@@ -72,7 +80,12 @@ val coreModule = module {
     // `params.get()` pulls the AppNavKey.TickerDetail handed over by the
     // EntryProvider's `parametersOf(key)`; the rest is resolved from the graph.
     viewModel { params ->
-        TickerDetailViewModel(navKey = params.get(), getTickerDetail = get())
+        TickerDetailViewModel(
+            navKey = params.get(),
+            getTickerDetail = get(),
+            observePriceSeries = get(),
+            refreshPriceSeries = get(),
+        )
     }
 }
 

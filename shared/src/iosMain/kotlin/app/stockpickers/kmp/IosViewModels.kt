@@ -1,6 +1,8 @@
 package app.stockpickers.kmp
 
 import app.stockpickers.kmp.domain.GetTickerDetailUseCase
+import app.stockpickers.kmp.domain.ObservePriceSeriesUseCase
+import app.stockpickers.kmp.domain.RefreshPriceSeriesUseCase
 import app.stockpickers.kmp.navigation.AppNavKey
 import app.stockpickers.kmp.presentation.TickerDetailViewModel
 import org.koin.mp.KoinPlatform
@@ -18,8 +20,12 @@ import org.koin.mp.KoinPlatform
  * (it would reach Swift as `doTickerDetailViewModel`). A plain verb-noun name and
  * class constructors both cross unmangled.
  */
-fun tickerDetailViewModel(ticker: String): TickerDetailViewModel =
-    TickerDetailViewModel(
+fun tickerDetailViewModel(ticker: String): TickerDetailViewModel {
+    val koin = KoinPlatform.getKoin()
+    return TickerDetailViewModel(
         navKey = AppNavKey.TickerDetail(ticker),
-        getTickerDetail = KoinPlatform.getKoin().get<GetTickerDetailUseCase>(),
+        getTickerDetail = koin.get<GetTickerDetailUseCase>(),
+        observePriceSeries = koin.get<ObservePriceSeriesUseCase>(),
+        refreshPriceSeries = koin.get<RefreshPriceSeriesUseCase>(),
     )
+}

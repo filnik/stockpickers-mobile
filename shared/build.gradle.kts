@@ -121,6 +121,11 @@ kotlin {
                 implementation(libs.lifecycle.viewmodel.navigation3)
 
                 implementation(libs.navigation3.ui)
+
+                // Vico charts. Used by the Android detail screen (TickerDetailScreen);
+                // iOS renders its own Swift Charts and never invokes this composable,
+                // but the dependency is klib-compatible so it compiles for every target.
+                implementation(libs.vico.multiplatform)
             }
         }
         androidMain {

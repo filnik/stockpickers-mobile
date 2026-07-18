@@ -48,6 +48,10 @@
     <string name="detail_not_cached">Not in cache</string>
     <string name="detail_pipeline_updated">Pipeline updated %1$s</string>
 
+    <!-- Price chart card -->
+    <string name="detail_price">Price</string>
+    <string name="detail_chart_unavailable">Chart unavailable</string>
+
     <string name="detail_momentum">Momentum</string>
 
     <string name="detail_trend_quality">Trend quality</string>

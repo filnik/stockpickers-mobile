@@ -90,3 +90,24 @@ android.sourceSets.getByName("test").resources.srcDir(
 tasks.matching {
     it.name == "processDebugUnitTestJavaRes" || it.name == "testDebugUnitTest"
 }.configureEach { dependsOn(stageComposeResForTest) }
+
+// RUNTIME side of the same AGP9-KMP gap: :shared's composeResources are NOT packaged
+// into this app's APK either (a fresh `assembleDebug` ships ZERO composeResources, so
+// the app crashes on the first `stringResource`). Stage them into the app's assets in
+// the package-qualified layout CMP reads at runtime
+// (assets/composeResources/<packageOfResClass>/...). Without this the app is not
+// launchable from a plain Gradle build. Remove once the KMP androidLibrary propagates
+// its composeResources to consumer app assets.
+val stageComposeResForApp = tasks.register<Copy>("stageComposeResForApp") {
+    val shared = project(":shared")
+    dependsOn(shared.tasks.named("prepareComposeResourcesTaskForCommonMain"))
+    from(shared.layout.buildDirectory.dir("generated/compose/resourceGenerator/preparedResources/commonMain/composeResources"))
+    into(layout.buildDirectory.dir("generatedAssets/composeResources/app.stockpickers.kmp.resources"))
+}
+
+android.sourceSets.getByName("main").assets.srcDir(
+    layout.buildDirectory.dir("generatedAssets").get().asFile,
+)
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+    .configureEach { dependsOn(stageComposeResForApp) }

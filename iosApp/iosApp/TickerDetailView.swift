@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 import Shared
 
 /// Observes the SHARED Kotlin `TickerDetailViewModel` and republishes its state to
@@ -70,6 +71,10 @@ struct TickerDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
+            }
+
+            Section("Price") {
+                PriceSection(series: model.state.priceSeries)
             }
 
             Section("Momentum") {
@@ -155,5 +160,169 @@ struct TickerDetailView: View {
     private func percent(_ v: KotlinDouble?) -> String {
         guard let d = v?.doubleValue else { return "—" }
         return String(format: "%.1f%%", d * 100)
+    }
+}
+
+/// One drawable close, mapped out of the shared Kotlin `PricePoint` into native
+/// Swift types so Swift Charts (which can't plot Obj-C-bridged classes directly on
+/// a `Date` axis) has a clean `Date`/`Double` pair. `id` is the timestamp: trading
+/// days are unique, and it makes the scrubber's nearest-point lookup trivial.
+private struct ChartPoint: Identifiable {
+    let id: TimeInterval
+    let date: Date
+    let close: Double
+}
+
+/// NATIVE Swift Charts price chart, fed by the SAME shared `PriceSeries` the Kotlin
+/// ViewModel exposes via SKIE. Line + gradient area of daily closes, green/red by
+/// whether the last quote is above the previous close, with an interactive scrubber
+/// (`.chartXSelection`) that drops a lollipop on the nearest day.
+private struct PriceSection: View {
+    let series: PriceSeries?
+
+    /// Bound to `.chartXSelection`; the x-value (a `Date`) under the user's finger.
+    @State private var selectedDate: Date?
+
+    /// Maps the Kotlin `List<PricePoint>` into Swift. `series.points` bridges to
+    /// `[PricePoint]` (an `NSArray` of SKIE-exported objects), so a plain `for`
+    /// loop is enough — no `as?` cast needed. `epochSeconds` is a non-null `Int64`
+    /// and `close` a non-null `Double`, so neither needs `.doubleValue` unboxing
+    /// (that's only for the `KotlinDouble?` fields `last`/`previousClose`).
+    private var points: [ChartPoint] {
+        guard let series else { return [] }
+        var result: [ChartPoint] = []
+        for p in series.points {
+            let t = TimeInterval(p.epochSeconds)
+            result.append(ChartPoint(id: t, date: Date(timeIntervalSince1970: t), close: p.close))
+        }
+        return result
+    }
+
+    /// Green when the latest quote holds at/above the previous close, else red.
+    /// Defaults to green when either quote is missing (a flat/unknown series).
+    private var isUp: Bool {
+        guard let last = series?.last?.doubleValue,
+              let prev = series?.previousClose?.doubleValue else { return true }
+        return last >= prev
+    }
+
+    private var tint: Color { isUp ? .green : .red }
+
+    /// The point nearest the scrubbed x-position, for the lollipop.
+    private var selectedPoint: ChartPoint? {
+        guard let selectedDate, !points.isEmpty else { return nil }
+        let target = selectedDate.timeIntervalSince1970
+        return points.min { abs($0.id - target) < abs($1.id - target) }
+    }
+
+    var body: some View {
+        let pts = points
+        if pts.isEmpty {
+            Text("Chart unavailable")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                header
+                chart(pts)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if let last = series?.last?.doubleValue {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(String(format: "%.2f", last))
+                    .font(.title2).bold().monospacedDigit()
+                if let currency = series?.currency {
+                    Text(currency)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let prev = series?.previousClose?.doubleValue, prev != 0 {
+                    let change = (last - prev) / prev * 100
+                    Text(String(format: "%+.2f%%", change))
+                        .font(.subheadline).bold().monospacedDigit()
+                        .foregroundStyle(tint)
+                }
+            }
+        }
+    }
+
+    private func chart(_ pts: [ChartPoint]) -> some View {
+        Chart {
+            ForEach(pts) { point in
+                LineMark(
+                    x: .value("Date", point.date),
+                    y: .value("Close", point.close)
+                )
+                .foregroundStyle(tint)
+                .interpolationMethod(.monotone)
+                .lineStyle(StrokeStyle(lineWidth: 2))
+
+                AreaMark(
+                    x: .value("Date", point.date),
+                    y: .value("Close", point.close)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [tint.opacity(0.28), tint.opacity(0.02)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .interpolationMethod(.monotone)
+            }
+
+            // Interactive scrubber: rule + lollipop + dot on the selected day.
+            if let sel = selectedPoint {
+                RuleMark(x: .value("Selected", sel.date))
+                    .foregroundStyle(Color.secondary.opacity(0.4))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .annotation(
+                        position: .top,
+                        spacing: 0,
+                        overflowResolution: .init(x: .fit(to: .chart), y: .disabled)
+                    ) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(sel.date, format: .dateTime.day().month(.abbreviated).year())
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.2f", sel.close))
+                                .font(.caption).bold().monospacedDigit()
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    }
+
+                PointMark(
+                    x: .value("Date", sel.date),
+                    y: .value("Close", sel.close)
+                )
+                .foregroundStyle(tint)
+                .symbolSize(70)
+            }
+        }
+        .chartXSelection(value: $selectedDate)
+        .chartYScale(domain: .automatic(includesZero: false))
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel()
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisGridLine()
+                AxisValueLabel(format: .dateTime.month(.abbreviated))
+            }
+        }
+        .frame(height: 200)
     }
 }

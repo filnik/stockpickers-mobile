@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.QualityGate
 import app.stockpickers.kmp.domain.TickerDetail
 import app.stockpickers.kmp.presentation.TickerDetailSideEffect
@@ -42,11 +43,13 @@ import app.stockpickers.kmp.presentation.TickerDetailViewModel
 import androidx.compose.runtime.LaunchedEffect
 import app.stockpickers.kmp.resources.Res
 import app.stockpickers.kmp.resources.cd_back
+import app.stockpickers.kmp.resources.detail_chart_unavailable
 import app.stockpickers.kmp.resources.detail_clenow_score
 import app.stockpickers.kmp.resources.detail_forward_pe
 import app.stockpickers.kmp.resources.detail_fundamentals
 import app.stockpickers.kmp.resources.detail_momentum
 import app.stockpickers.kmp.resources.detail_not_cached
+import app.stockpickers.kmp.resources.detail_price
 import app.stockpickers.kmp.resources.detail_peg
 import app.stockpickers.kmp.resources.detail_pipeline_updated
 import app.stockpickers.kmp.resources.detail_quality_gate
@@ -130,6 +133,7 @@ fun TickerDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Header(detail)
+                PriceChartCard(state.priceSeries)
                 MomentumCard(detail)
                 TrendCard(detail)
                 FundamentalsCard(detail)
@@ -166,6 +170,42 @@ private fun Header(detail: TickerDetail) {
             modifier = Modifier.padding(top = 4.dp),
         )
     }
+}
+
+/**
+ * Price chart card. Shows the latest quote (value + currency) when known, then the
+ * close-line/area chart. Falls back to "chart unavailable" when the series is
+ * absent (uncached / Yahoo had no data / a refresh failed) or carries no points.
+ */
+@Composable
+private fun PriceChartCard(series: PriceSeries?) {
+    SectionCard(title = stringResource(Res.string.detail_price)) {
+        series?.last?.let { last ->
+            Text(
+                text = formatQuote(last, series.currency),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        val points = series?.points.orEmpty()
+        if (points.isEmpty()) {
+            Text(
+                text = stringResource(Res.string.detail_chart_unavailable),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            PriceChart(points = points, lineColor = trendColor(series))
+        }
+    }
+}
+
+/** Green when the last close holds at/above the previous, red when it slipped. */
+private fun trendColor(series: PriceSeries?): Color {
+    val last = series?.last
+    val previous = series?.previousClose
+    return if (last != null && previous != null && last < previous) NegativeRed else PositiveGreen
 }
 
 @Composable

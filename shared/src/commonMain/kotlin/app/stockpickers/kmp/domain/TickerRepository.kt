@@ -39,4 +39,18 @@ interface TickerRepository {
 
     /** Fetches from Supabase and upserts into Room. Cache survives failure. */
     suspend fun refresh(): RefreshResult
+
+    /**
+     * Cached price history for [ticker]'s detail chart, from Room. Offline-first
+     * and network-free like [observeTicker]; emits null until [refreshPriceSeries]
+     * has landed a series (or when the symbol has no chart data).
+     */
+    fun observePriceSeries(ticker: String): Flow<PriceSeries?>
+
+    /**
+     * Fetches [ticker]'s price history from Yahoo into Room, unless the cache is
+     * still fresh (skipped within a short TTL to respect Yahoo's IP rate limit).
+     * Fire-and-forget: it never throws and never blanks the cache on failure.
+     */
+    suspend fun refreshPriceSeries(ticker: String)
 }

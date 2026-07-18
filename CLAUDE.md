@@ -132,6 +132,8 @@ See the KMP-specific Nav3 gotchas below — several are not in the AndroidX docs
 | Network | Ktor 3.5.1 (OkHttp on Android, Darwin on iOS) |
 | DI | Koin 4.2.2, classic DSL |
 | ViewModel | `org.jetbrains.androidx.lifecycle` 2.11.0 |
+| Charts | **Vico 2.5.2** (Android) · **Swift Charts** (iOS) — same shared `PriceSeries`, see below |
+| Market data | Yahoo Finance v8 `chart` (direct, browser UA, Room-cached) — see below |
 | Build | AGP 9.3.0, compileSdk 37 / targetSdk 36 / minSdk 29 |
 
 ## KMP / iOS Gotchas
@@ -170,6 +172,13 @@ The iOS detail screen is **native SwiftUI** (`iosApp/iosApp/TickerDetailView.swi
 - **Nullable Doubles still cross as `KotlinDouble?`**, not `Double?` — read them in Swift with `.doubleValue` (and `KotlinBoolean?.boolValue`). SKIE fixes Flow/suspend/sealed/enum, but not the primitive-boxing of arbitrary data-class properties; that's a broader Kotlin↔Obj-C limit.
 - A Swift-exposed factory must not be named `init*` (the Obj-C exporter mangles that function family); `tickerDetailViewModel(...)` and class constructors cross unmangled.
 
+### Price chart & market data (Yahoo, hybrid render)
+The detail screen shows a 6-month daily close chart. Same shared data, two native renderers — the chart is the hybrid thesis made literal:
+- **Data**: `YahooChartApi` (commonMain, Ktor) calls Yahoo's unofficial `v8/finance/chart/{symbol}` **directly** (our tickers ARE Yahoo symbols — no mapping). Normalized to the shared `PriceSeries(currency, last, previousClose, points: List<PricePoint>)`; cached in Room (`PriceSeriesEntity`, points as JSON). `TickerDetailViewModel` exposes `uiState.priceSeries` and fires `RefreshPriceSeriesUseCase` in `init` (fire-and-forget; UI shows cache meanwhile).
+- **Render**: Android = **Vico** line+area in `ui/PriceChart.kt` (the CMP `TickerDetailScreen`); iOS = **Swift Charts** in `iosApp/.../TickerDetailView.swift` (`PriceSection`, with `.chartXSelection` scrubbing), reading `state.priceSeries` via SKIE.
+- **Why no proxy Worker**: Yahoo bans by *per-IP frequency* (see `../investing/tech-docs/reference/yfinance_access.md`). A client calling once-per-ticker from its own IP, Room-cached (6h freshness), is low-frequency and fine. A shared Worker would CONCENTRATE all users onto a few egress IPs — worse for the ban, not better. Mitigation is caching, not a proxy. **Required**: a browser `User-Agent` (else 429); fallback query1→query2; failures are graceful (keep cache / "chart unavailable", never retry-spam). Don't add tests that hit real Yahoo — use a fixture.
+- **ToS caveat**: the v8 endpoint is unofficial (personal-use). For a store/commercial release, front it with a swappable server-side source; for this portfolio app, direct is fine.
+
 ### Room 3.0
 - Room 3.0 is a **new package (`androidx.room3`) and a new Gradle extension (`room3 { }`)** — not `androidx.room` / `room { }` as in 2.x. Mixing them silently fails to generate code.
 - The KSP processor must be added **per target** (`kspAndroid`, `kspIosArm64`, `kspIosSimulatorArm64`); a bare `ksp(...)` only wires Android.
@@ -182,6 +191,7 @@ The iOS detail screen is **native SwiftUI** (`iosApp/iosApp/TickerDetailView.swi
 - The Android target is configured **inside the `kotlin { androidLibrary { } }` block**, not in a top-level `android { }`.
 - **compileSdk must be 37**, not 36: `androidx.lifecycle` 2.11.0's AAR metadata demands it and `checkDebugAarMetadata` fails otherwise. `targetSdk` stays 36.
 - `-Xexpect-actual-classes` is required — `expect class`/`expect object` are still flagged Beta and warn on every compile.
+- **`:shared`'s `composeResources` are NOT propagated to the consumer APK.** A plain `assembleDebug` ships ZERO composeResources → the app crashes on the first `stringResource`. `composeApp/build.gradle.kts::stageComposeResForApp` copies them into the app's assets in the package-qualified layout (`assets/composeResources/<packageOfResClass>/…`) so the app launches. Same root cause as the host-test staging; remove both when the KMP androidLibrary plugin propagates composeResources to consumers.
 
 ### Supabase / PostgREST
 - **A single response is capped at 1000 rows server-side**, whatever `limit` says (the table holds ~1800). A naive GET silently truncates the universe and corrupts the board. Page with the `Range` header until a short page comes back (`SupabaseScannerApi`).
