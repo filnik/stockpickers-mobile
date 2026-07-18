@@ -230,7 +230,11 @@ private fun PriceChartCard(
 
         val points = series?.points.orEmpty()
         when {
-            points.isNotEmpty() -> PriceChart(points = points, lineColor = trendColor(series))
+            points.isNotEmpty() -> PriceChart(
+                points = points,
+                lineColor = trendColor(series),
+                intraday = selectedRange.isIntraday,
+            )
             // Soft loading: a freshly-picked, not-yet-cached range is fetching — keep the
             // chart's footprint and show a spinner rather than the empty-state text.
             isChartLoading -> Box(
