@@ -187,6 +187,37 @@ private struct ChartPoint: Identifiable {
 /// ViewModel exposes via SKIE. Line + gradient area of daily closes, green/red by
 /// whether the last quote is above the previous close, with an interactive scrubber
 /// (`.chartXSelection`) that drops a lollipop on the nearest day.
+/// Money formatting, mirroring `Formatting.kt` in :shared so both platforms read
+/// identically: currencies with a widely-read symbol lead with it ("$150.00"), the
+/// rest trail their ISO code ("35.55 TWD"). Kept native here because this screen
+/// deliberately renders in SwiftUI — the shared layer owns the DATA, not the glyphs.
+private func currencySymbol(_ code: String) -> String? {
+    switch code.uppercased() {
+    case "USD": return "$"
+    case "EUR": return "€"
+    case "GBP": return "£"
+    case "JPY", "CNY": return "¥"
+    default: return nil
+    }
+}
+
+private func formatQuote(_ value: Double, _ currency: String?) -> String {
+    let amount = String(format: "%.2f", value)
+    guard let code = currency else { return amount }
+    if let symbol = currencySymbol(code) { return symbol + amount }
+    return "\(amount) \(code)"
+}
+
+/// The sign leads the symbol (`-$3.95`, never `$-3.95`), so the magnitude is
+/// formatted unsigned.
+private func formatSignedQuote(_ value: Double, _ currency: String?) -> String {
+    let sign = value >= 0 ? "+" : "-"
+    let amount = String(format: "%.2f", Swift.abs(value))
+    guard let code = currency else { return sign + amount }
+    if let symbol = currencySymbol(code) { return sign + symbol + amount }
+    return "\(sign)\(amount) \(code)"
+}
+
 private struct PriceSection: View {
     let series: PriceSeries?
     /// The chip currently selected in the shared state (drives the segmented Picker).
@@ -273,13 +304,8 @@ private struct PriceSection: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             if let last = series?.last?.doubleValue {
-                Text(String(format: "%.2f", last))
+                Text(formatQuote(last, series?.currency))
                     .font(.title2).bold().monospacedDigit()
-                if let currency = series?.currency {
-                    Text(currency)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
             } else {
                 Text("—").font(.title2).bold().foregroundStyle(.secondary)
             }
@@ -287,8 +313,8 @@ private struct PriceSection: View {
             if let pct = series?.periodChangePercent?.doubleValue {
                 let up = pct >= 0
                 HStack(spacing: 5) {
-                    if let abs = series?.periodChange?.doubleValue {
-                        Text(String(format: "%+.2f", abs)).monospacedDigit()
+                    if let change = series?.periodChange?.doubleValue {
+                        Text(formatSignedQuote(change, series?.currency)).monospacedDigit()
                     }
                     Text(String(format: "(%+.2f%%)", pct * 100)).monospacedDigit()
                 }

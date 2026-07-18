@@ -45,23 +45,42 @@ internal fun formatPriceEur(value: Double?): String =
     value?.let { "€" + it.format(2) } ?: "—"
 
 /**
- * The live quote for the price chart: the value followed by its ISO currency code
- * (e.g. "593.00 TWD"). Unlike [formatPriceEur] the currency is Yahoo's, not EUR,
- * and trails as a code since it can be any market's.
+ * The symbol for an ISO currency code, or null when it has no widely-read one.
+ * Deliberately tiny: it covers the markets this scanner actually surfaces, and
+ * anything else (TWD, SEK, …) reads better as its code than as a guessed glyph.
  */
-internal fun formatQuote(value: Double?, currency: String?): String =
-    value?.let { v -> currency?.let { "${v.format(2)} $it" } ?: v.format(2) } ?: "—"
+private fun currencySymbol(code: String): String? = when (code.uppercase()) {
+    "USD" -> "$"
+    "EUR" -> "€"
+    "GBP" -> "£"
+    "JPY", "CNY" -> "¥"
+    else -> null
+}
 
 /**
- * The selected period's ABSOLUTE change, ALWAYS signed (e.g. "+12.34 USD",
- * "-5.10 TWD"). The explicit "+" marks it as a delta over the window, not a level.
- * The manual [format] already prints the "-" for negatives, so a positive just gets
- * a leading "+".
+ * The live quote for the price chart. Currencies with a symbol lead with it
+ * ("$150.00", "€93.20") — the fastest way to see WHICH money this is; the rest
+ * trail their ISO code ("35.55 TWD"). Unlike [formatPriceEur] the currency is
+ * Yahoo's (the market's own), not the scanner's EUR conversion.
+ */
+internal fun formatQuote(value: Double?, currency: String?): String {
+    if (value == null) return "—"
+    val amount = value.format(2)
+    val code = currency ?: return amount
+    return currencySymbol(code)?.let { "$it$amount" } ?: "$amount $code"
+}
+
+/**
+ * The selected period's ABSOLUTE change, ALWAYS signed ("+$12.34", "-5.10 TWD").
+ * The explicit "+" marks it as a delta over the window, not a level. The sign leads
+ * the symbol (`-$3.95`, never `$-3.95`), so the magnitude is formatted unsigned.
  */
 internal fun formatSignedQuote(value: Double?, currency: String?): String {
     if (value == null) return "—"
-    val signed = (if (value >= 0) "+" else "") + value.format(2)
-    return currency?.let { "$signed $it" } ?: signed
+    val sign = if (value >= 0) "+" else "-"
+    val amount = abs(value).format(2)
+    val code = currency ?: return "$sign$amount"
+    return currencySymbol(code)?.let { "$sign$it$amount" } ?: "$sign$amount $code"
 }
 
 /**
