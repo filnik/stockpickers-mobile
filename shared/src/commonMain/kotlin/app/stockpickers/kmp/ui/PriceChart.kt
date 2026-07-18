@@ -30,6 +30,14 @@ import com.patrykandpatrick.vico.multiplatform.common.Fill
 
 private val CHART_HEIGHT = 200.dp
 
+private const val SECONDS_PER_DAY = 86_400L
+
+/** Windows up to ~this long label the day as well as the month (1M/3M, not 6M/1Y). */
+private const val DAY_LABEL_MAX_SPAN_DAYS = 100L
+
+/** Roughly how many x labels to fit — few enough that they never collide. */
+private const val X_LABEL_TARGET = 5
+
 /**
  * A line/area chart of daily closes, drawn with Vico. Android only in practice —
  * iOS renders Swift Charts and never reaches this composable, but it compiles for
@@ -53,15 +61,31 @@ internal fun PriceChart(
     // hour for intraday windows, the abbreviated month for daily ones.
     val xFormatter = remember(points, intraday) {
         val tz = TimeZone.currentSystemDefault()
+        // A month-only label repeats itself on short windows ("Jun Jun Jun Jul"), so
+        // those get the day too; only the wide ones (6M/1Y) read well as bare months.
+        val spanDays = (points.last().epochSeconds - points.first().epochSeconds) / SECONDS_PER_DAY
+        val withDay = !intraday && spanDays <= DAY_LABEL_MAX_SPAN_DAYS
         CartesianValueFormatter { _, value, _ ->
-            val point = points.getOrNull(value.toInt()) ?: return@CartesianValueFormatter ""
+            // Vico may query x just outside [0, lastIndex] (extreme-label padding);
+            // clamp so we ALWAYS return a real label. Returning an empty string here
+            // makes Vico throw — which x values get labeled is controlled by the axis
+            // ItemPlacer below, never by empty strings.
+            val point = points[value.toInt().coerceIn(0, points.lastIndex)]
             val dt = Instant.fromEpochSeconds(point.epochSeconds).toLocalDateTime(tz)
-            if (intraday) {
-                "${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
-            } else {
-                dt.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
+            val month = dt.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
+            when {
+                intraday -> "${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
+                withDay -> "${dt.day} $month"
+                else -> month
             }
         }
+    }
+    // Aim for ~5 evenly spaced labels landing on real point indices — few enough that
+    // consecutive daily labels fall in distinct months (no "Mar Mar"), and always at
+    // valid indices so the formatter never runs off the end.
+    val xItemPlacer = remember(points.size) {
+        val spacing = (points.size / X_LABEL_TARGET).coerceAtLeast(1)
+        HorizontalAxis.ItemPlacer.aligned(spacing = { spacing })
     }
 
     val modelProducer = remember { CartesianChartModelProducer() }
@@ -100,7 +124,10 @@ internal fun PriceChart(
             rangeProvider = rangeProvider,
         ),
         startAxis = VerticalAxis.rememberStart(),
-        bottomAxis = HorizontalAxis.rememberBottom(valueFormatter = xFormatter),
+        bottomAxis = HorizontalAxis.rememberBottom(
+            valueFormatter = xFormatter,
+            itemPlacer = xItemPlacer,
+        ),
     )
 
     CartesianChartHost(
