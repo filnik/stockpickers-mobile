@@ -174,11 +174,17 @@ struct TickerDetailView: View {
 }
 
 /// One drawable close, mapped out of the shared Kotlin `PricePoint` into native
-/// Swift types so Swift Charts (which can't plot Obj-C-bridged classes directly on
-/// a `Date` axis) has a clean `Date`/`Double` pair. `id` is the timestamp: trading
-/// days are unique, and it makes the scrubber's nearest-point lookup trivial.
+/// Swift types.
+///
+/// `id` is the point's POSITION in the series, and it is what the chart plots on x —
+/// deliberately NOT the timestamp. On a real time axis the hours a market is shut
+/// (overnight, weekends) contain no points, so the line is drawn straight across
+/// them: on a 1W intraday window that interpolation is most of the width, and it
+/// reads as price action that never happened. Plotting by index collapses closed
+/// time the way TradingView does, and matches the Android chart, which is built the
+/// same way. `date` is kept for the axis labels and the scrubber readout.
 private struct ChartPoint: Identifiable {
-    let id: TimeInterval
+    let id: Int
     let date: Date
     let close: Double
 }
@@ -227,8 +233,8 @@ private struct PriceSection: View {
     /// Fires when the user taps a different segment; forwards to the shared ViewModel.
     let onSelectRange: (ChartRange) -> Void
 
-    /// Bound to `.chartXSelection`; the x-value (a `Date`) under the user's finger.
-    @State private var selectedDate: Date?
+    /// Bound to `.chartXSelection`; the x-value (a point INDEX) under the user's finger.
+    @State private var selectedIndex: Int?
 
     /// Maps the Kotlin `List<PricePoint>` into Swift. `series.points` bridges to
     /// `[PricePoint]` (an `NSArray` of SKIE-exported objects), so a plain `for`
@@ -240,7 +246,9 @@ private struct PriceSection: View {
         var result: [ChartPoint] = []
         for p in series.points {
             let t = TimeInterval(p.epochSeconds)
-            result.append(ChartPoint(id: t, date: Date(timeIntervalSince1970: t), close: p.close))
+            result.append(
+                ChartPoint(id: result.count, date: Date(timeIntervalSince1970: t), close: p.close)
+            )
         }
         return result
     }
@@ -255,21 +263,38 @@ private struct PriceSection: View {
 
     private var tint: Color { isUp ? .green : .red }
 
-    /// The point nearest the scrubbed x-position, for the lollipop.
+    /// The point under the scrubber. x is an index, so this is a direct lookup —
+    /// clamped because the selection can settle just past either end.
     private var selectedPoint: ChartPoint? {
-        guard let selectedDate, !points.isEmpty else { return nil }
-        let target = selectedDate.timeIntervalSince1970
-        return points.min { abs($0.id - target) < abs($1.id - target) }
+        guard let selectedIndex, !points.isEmpty else { return nil }
+        return points[min(max(selectedIndex, 0), points.count - 1)]
     }
 
-    /// The selected window's span, in seconds. Intraday windows (1D/1W) pack a few
-    /// days of 5m/30m candles; a month or more spans weeks. Used to pick the X-axis
-    /// label granularity (hour vs. month) from the DATA, not from `selectedRange`, so
-    /// it stays correct even if a range returns a partial series.
-    private var isIntraday: Bool {
-        let times = points.map { $0.id }
-        guard let lo = times.min(), let hi = times.max() else { return false }
-        return (hi - lo) < 8 * 24 * 3600 // < ~8 days → intraday candles
+    /// The window's span in seconds, read from the DATA rather than `selectedRange`,
+    /// so it stays right even when a range comes back partial.
+    private var spanSeconds: TimeInterval {
+        guard let first = points.first?.date, let last = points.last?.date else { return 0 }
+        return last.timeIntervalSince(first)
+    }
+
+    private var isIntraday: Bool { spanSeconds < 8 * 24 * 3600 }
+
+    /// X labels sized to the window. A bare hour is right for a single session but
+    /// useless across a week (every automatic tick lands at midnight and reads "00"),
+    /// and a bare month repeats itself on short windows — so each span gets the
+    /// coarsest field that still distinguishes its labels.
+    private var xLabelFormatter: DateFormatter {
+        let day: TimeInterval = 86_400
+        let span = spanSeconds
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        switch span {
+        case ..<(2 * day): formatter.setLocalizedDateFormatFromTemplate("Hm")    // 15:30
+        case ..<(8 * day): formatter.setLocalizedDateFormatFromTemplate("EEE")   // Mon
+        case ..<(100 * day): formatter.setLocalizedDateFormatFromTemplate("dMMM") // 16 Jun
+        default: formatter.setLocalizedDateFormatFromTemplate("MMM")             // Jun
+        }
+        return formatter
     }
 
     var body: some View {
@@ -364,10 +389,14 @@ private struct PriceSection: View {
         let pad = max((dataHi - dataLo) * 0.08, 0.0001)
         let yLo = dataLo - pad
         let yHi = dataHi + pad
+        // ~5 labels, always on real point indices so every tick has a date to show.
+        let labelStride = max(pts.count / 5, 1)
+        let labelIndices = Array(stride(from: 0, to: pts.count, by: labelStride))
+        let labelFormatter = xLabelFormatter
         return Chart {
             ForEach(pts) { point in
                 LineMark(
-                    x: .value("Date", point.date),
+                    x: .value("Point", point.id),
                     y: .value("Close", point.close)
                 )
                 .foregroundStyle(tint)
@@ -375,7 +404,7 @@ private struct PriceSection: View {
                 .lineStyle(StrokeStyle(lineWidth: 2))
 
                 AreaMark(
-                    x: .value("Date", point.date),
+                    x: .value("Point", point.id),
                     yStart: .value("Base", yLo),
                     yEnd: .value("Close", point.close)
                 )
@@ -391,7 +420,7 @@ private struct PriceSection: View {
 
             // Interactive scrubber: rule + lollipop + dot on the selected day.
             if let sel = selectedPoint {
-                RuleMark(x: .value("Selected", sel.date))
+                RuleMark(x: .value("Selected", sel.id))
                     .foregroundStyle(Color.secondary.opacity(0.4))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     .annotation(
@@ -414,14 +443,14 @@ private struct PriceSection: View {
                     }
 
                 PointMark(
-                    x: .value("Date", sel.date),
+                    x: .value("Point", sel.id),
                     y: .value("Close", sel.close)
                 )
                 .foregroundStyle(tint)
                 .symbolSize(70)
             }
         }
-        .chartXSelection(value: $selectedDate)
+        .chartXSelection(value: $selectedIndex)
         .chartYScale(domain: yLo...yHi)
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
@@ -431,13 +460,11 @@ private struct PriceSection: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) {
+            AxisMarks(values: labelIndices) { value in
                 AxisGridLine()
-                // Intraday windows (1D/1W) read as clock time; longer ones as month.
-                if intraday {
-                    AxisValueLabel(format: .dateTime.hour())
-                } else {
-                    AxisValueLabel(format: .dateTime.month(.abbreviated))
+                // x is an index, so the label has to be looked up on the point itself.
+                if let i = value.as(Int.self), i >= 0, i < pts.count {
+                    AxisValueLabel { Text(labelFormatter.string(from: pts[i].date)) }
                 }
             }
         }

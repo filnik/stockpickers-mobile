@@ -22,8 +22,10 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $path) {
             LeadersView(onTickerSelected: { ticker in path.append(ticker) })
-                // Compose draws its own top bar and IME padding.
-                .ignoresSafeArea(.keyboard)
+                // Compose owns its insets — its Scaffold already pads for the status
+                // bar and IME. Letting SwiftUI ALSO inset the hosted controller pads
+                // the top twice, which showed as a band of dead space above the title.
+                .ignoresSafeArea()
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: String.self) { ticker in
                     TickerDetailView(ticker: ticker)

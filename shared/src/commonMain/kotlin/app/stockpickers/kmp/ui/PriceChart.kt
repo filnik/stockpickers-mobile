@@ -38,6 +38,9 @@ private const val DAY_LABEL_MAX_SPAN_DAYS = 100L
 /** Roughly how many x labels to fit — few enough that they never collide. */
 private const val X_LABEL_TARGET = 5
 
+/** "MONDAY" -> "Mon". Enum names are the only calendar names available in commonMain. */
+private fun String.abbreviated(): String = take(3).lowercase().replaceFirstChar { it.uppercase() }
+
 /**
  * A line/area chart of daily closes, drawn with Vico. Android only in practice —
  * iOS renders Swift Charts and never reaches this composable, but it compiles for
@@ -55,16 +58,15 @@ internal fun PriceChart(
     points: List<PricePoint>,
     lineColor: Color,
     modifier: Modifier = Modifier,
-    intraday: Boolean = false,
 ) {
-    // X labels come from each point's real timestamp (x is the point index): the
-    // hour for intraday windows, the abbreviated month for daily ones.
-    val xFormatter = remember(points, intraday) {
+    // X labels come from each point's real timestamp (x is the point index).
+    val xFormatter = remember(points) {
         val tz = TimeZone.currentSystemDefault()
-        // A month-only label repeats itself on short windows ("Jun Jun Jun Jul"), so
-        // those get the day too; only the wide ones (6M/1Y) read well as bare months.
+        // Granularity comes from the window's actual span, not from a range flag: each
+        // span gets the coarsest field that still tells its labels apart. A clock time
+        // is right for one session but repeats every day across a week; a bare month
+        // repeats itself on short windows ("Jun Jun Jun").
         val spanDays = (points.last().epochSeconds - points.first().epochSeconds) / SECONDS_PER_DAY
-        val withDay = !intraday && spanDays <= DAY_LABEL_MAX_SPAN_DAYS
         CartesianValueFormatter { _, value, _ ->
             // Vico may query x just outside [0, lastIndex] (extreme-label padding);
             // clamp so we ALWAYS return a real label. Returning an empty string here
@@ -72,11 +74,12 @@ internal fun PriceChart(
             // ItemPlacer below, never by empty strings.
             val point = points[value.toInt().coerceIn(0, points.lastIndex)]
             val dt = Instant.fromEpochSeconds(point.epochSeconds).toLocalDateTime(tz)
-            val month = dt.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
             when {
-                intraday -> "${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
-                withDay -> "${dt.day} $month"
-                else -> month
+                spanDays < 2 -> // one session: 15:30
+                    "${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
+                spanDays < 8 -> dt.dayOfWeek.name.abbreviated() // a few sessions: Mon
+                spanDays <= DAY_LABEL_MAX_SPAN_DAYS -> "${dt.day} ${dt.month.name.abbreviated()}"
+                else -> dt.month.name.abbreviated() // Jun
             }
         }
     }
