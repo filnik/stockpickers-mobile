@@ -51,6 +51,10 @@
     <!-- Price chart card -->
     <string name="detail_price">Price</string>
     <string name="detail_chart_unavailable">Chart unavailable</string>
+    <!-- Shown when the SELECTED range returns no data (e.g. intraday on a thin
+         foreign symbol). The 1D…1Y chip labels are domain symbols kept in
+         ChartRange, so they are not listed here. -->
+    <string name="detail_chart_range_unavailable">No data for this range</string>
 
     <string name="detail_momentum">Momentum</string>
 

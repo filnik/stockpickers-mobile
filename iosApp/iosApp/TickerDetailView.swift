@@ -26,6 +26,11 @@ final class TickerDetailModel: ObservableObject {
 
     /// Stop observing the shared StateFlow. Called from `.onDisappear`.
     func stop() { task?.cancel() }
+
+    /// Picks the chart's time window on the SHARED ViewModel. `ChartRange` is the
+    /// SKIE-bridged Kotlin enum (native Swift enum), so this hands the value straight
+    /// through — the ViewModel re-points the observed Room series and refreshes.
+    func selectRange(_ r: ChartRange) { viewModel.selectRange(range: r) }
 }
 
 /// NATIVE SwiftUI detail screen. Same shared ViewModel as the Compose (Android)
@@ -74,7 +79,12 @@ struct TickerDetailView: View {
             }
 
             Section("Price") {
-                PriceSection(series: model.state.priceSeries)
+                PriceSection(
+                    series: model.state.priceSeries,
+                    selectedRange: model.state.selectedRange,
+                    isLoading: model.state.isChartLoading,
+                    onSelectRange: { model.selectRange($0) }
+                )
             }
 
             Section("Momentum") {
@@ -179,6 +189,12 @@ private struct ChartPoint: Identifiable {
 /// (`.chartXSelection`) that drops a lollipop on the nearest day.
 private struct PriceSection: View {
     let series: PriceSeries?
+    /// The chip currently selected in the shared state (drives the segmented Picker).
+    let selectedRange: ChartRange
+    /// A refresh for the selected range is in flight — show a soft loader, not "no data".
+    let isLoading: Bool
+    /// Fires when the user taps a different segment; forwards to the shared ViewModel.
+    let onSelectRange: (ChartRange) -> Void
 
     /// Bound to `.chartXSelection`; the x-value (a `Date`) under the user's finger.
     @State private var selectedDate: Date?
@@ -215,26 +231,48 @@ private struct PriceSection: View {
         return points.min { abs($0.id - target) < abs($1.id - target) }
     }
 
-    var body: some View {
-        let pts = points
-        if pts.isEmpty {
-            Text("Chart unavailable")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 8)
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                header
-                chart(pts)
-            }
-            .padding(.vertical, 4)
-        }
+    /// The selected window's span, in seconds. Intraday windows (1D/1W) pack a few
+    /// days of 5m/30m candles; a month or more spans weeks. Used to pick the X-axis
+    /// label granularity (hour vs. month) from the DATA, not from `selectedRange`, so
+    /// it stays correct even if a range returns a partial series.
+    private var isIntraday: Bool {
+        let times = points.map { $0.id }
+        guard let lo = times.min(), let hi = times.max() else { return false }
+        return (hi - lo) < 8 * 24 * 3600 // < ~8 days → intraday candles
     }
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header
+            rangePicker
+            chartArea
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// TradingView-style segmented range selector. Iterates the SKIE-bridged Kotlin
+    /// enum via Swift `CaseIterable` (`ChartRange.allCases`, in declaration order
+    /// 1D…1Y); each case is `Hashable`, so `\.self` ids and `.tag` work directly.
+    private var rangePicker: some View {
+        Picker("Range", selection: Binding(
+            get: { selectedRange },
+            set: { onSelectRange($0) }
+        )) {
+            ForEach(ChartRange.allCases, id: \.self) { range in
+                Text(range.label).tag(range)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    /// Last quote + currency, plus the SELECTED PERIOD's change (absolute and %),
+    /// coloured by sign. Both figures come from the shared `PriceSeries`
+    /// (`periodChange` / `periodChangePercent`), so they update as the range changes.
     @ViewBuilder
     private var header: some View {
-        if let last = series?.last?.doubleValue {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let last = series?.last?.doubleValue {
                 Text(String(format: "%.2f", last))
                     .font(.title2).bold().monospacedDigit()
                 if let currency = series?.currency {
@@ -242,19 +280,65 @@ private struct PriceSection: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
-                if let prev = series?.previousClose?.doubleValue, prev != 0 {
-                    let change = (last - prev) / prev * 100
-                    Text(String(format: "%+.2f%%", change))
-                        .font(.subheadline).bold().monospacedDigit()
-                        .foregroundStyle(tint)
+            } else {
+                Text("—").font(.title2).bold().foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let pct = series?.periodChangePercent?.doubleValue {
+                let up = pct >= 0
+                HStack(spacing: 5) {
+                    if let abs = series?.periodChange?.doubleValue {
+                        Text(String(format: "%+.2f", abs)).monospacedDigit()
+                    }
+                    Text(String(format: "(%+.2f%%)", pct * 100)).monospacedDigit()
                 }
+                .font(.subheadline).bold()
+                .foregroundStyle(up ? .green : .red)
             }
         }
     }
 
+    /// The chart, or its stand-ins: a soft loader while a freshly-picked range fetches
+    /// (so a chip switch never flashes the empty state), and an explicit "no data" once
+    /// the load settles with zero points.
+    @ViewBuilder
+    private var chartArea: some View {
+        let pts = points
+        if pts.isEmpty {
+            ZStack {
+                if isLoading {
+                    ProgressView()
+                } else {
+                    Text("No data for this range")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 200)
+        } else {
+            chart(pts)
+                .overlay(alignment: .topTrailing) {
+                    if isLoading {
+                        ProgressView().controlSize(.small).padding(6)
+                    }
+                }
+        }
+    }
+
     private func chart(_ pts: [ChartPoint]) -> some View {
-        Chart {
+        let intraday = isIntraday
+        // TradingView-style zoomed Y: frame the visible range around the data, never
+        // from 0. `.automatic(includesZero: false)` alone is NOT enough here — the
+        // AreaMark pins its baseline to 0, which drags 0 back into the auto domain — so
+        // we compute an explicit padded [lo, hi] and anchor the area's fill to `lo`.
+        let closes = pts.map(\.close)
+        let dataLo = closes.min() ?? 0
+        let dataHi = closes.max() ?? 1
+        let pad = max((dataHi - dataLo) * 0.08, 0.0001)
+        let yLo = dataLo - pad
+        let yHi = dataHi + pad
+        return Chart {
             ForEach(pts) { point in
                 LineMark(
                     x: .value("Date", point.date),
@@ -266,7 +350,8 @@ private struct PriceSection: View {
 
                 AreaMark(
                     x: .value("Date", point.date),
-                    y: .value("Close", point.close)
+                    yStart: .value("Base", yLo),
+                    yEnd: .value("Close", point.close)
                 )
                 .foregroundStyle(
                     LinearGradient(
@@ -289,7 +374,9 @@ private struct PriceSection: View {
                         overflowResolution: .init(x: .fit(to: .chart), y: .disabled)
                     ) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(sel.date, format: .dateTime.day().month(.abbreviated).year())
+                            Text(sel.date, format: intraday
+                                 ? .dateTime.month(.abbreviated).day().hour().minute()
+                                 : .dateTime.day().month(.abbreviated).year())
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Text(String(format: "%.2f", sel.close))
@@ -309,7 +396,7 @@ private struct PriceSection: View {
             }
         }
         .chartXSelection(value: $selectedDate)
-        .chartYScale(domain: .automatic(includesZero: false))
+        .chartYScale(domain: yLo...yHi)
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
                 AxisGridLine()
@@ -320,7 +407,12 @@ private struct PriceSection: View {
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) {
                 AxisGridLine()
-                AxisValueLabel(format: .dateTime.month(.abbreviated))
+                // Intraday windows (1D/1W) read as clock time; longer ones as month.
+                if intraday {
+                    AxisValueLabel(format: .dateTime.hour())
+                } else {
+                    AxisValueLabel(format: .dateTime.month(.abbreviated))
+                }
             }
         }
         .frame(height: 200)

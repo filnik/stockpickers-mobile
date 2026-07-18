@@ -8,6 +8,7 @@ import app.stockpickers.kmp.data.local.TickerEntity
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.remote.TickerDto
 import app.stockpickers.kmp.data.remote.YahooChartApi
+import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
@@ -63,20 +64,24 @@ class TickerRepositoryImpl(
         RefreshResult.Failed(e.message ?: "Unknown error")
     }
 
-    override fun observePriceSeries(ticker: String): Flow<PriceSeries?> =
-        dao.observePriceSeries(ticker).map { entity -> entity?.toDomain(json) }
+    override fun observePriceSeries(ticker: String, range: ChartRange): Flow<PriceSeries?> =
+        dao.observePriceSeries(ticker, range.rangeKey).map { entity -> entity?.toDomain(json) }
 
     @OptIn(ExperimentalTime::class)
-    override suspend fun refreshPriceSeries(ticker: String) {
+    override suspend fun refreshPriceSeries(ticker: String, range: ChartRange) {
         try {
-            // Freshness gate: Yahoo rate-limits by IP, so we fetch a given ticker
-            // at most once per TTL and serve Room in between.
-            val fetchedAt = dao.getPriceSeriesFetchedAt(ticker)
+            // Freshness gate: Yahoo rate-limits by IP, so we fetch a given
+            // (ticker, range) at most once per TTL and serve Room in between. The
+            // TTL is range-dependent — intraday windows move all session and need a
+            // short window; daily windows barely change until the next close.
+            val ttl = if (range.isIntraday) INTRADAY_TTL_MILLIS else DAILY_TTL_MILLIS
+            val fetchedAt = dao.getPriceSeriesFetchedAt(ticker, range.rangeKey)
             val now = Clock.System.now().toEpochMilliseconds()
-            if (fetchedAt != null && now - fetchedAt < PRICE_SERIES_TTL_MILLIS) return
+            if (fetchedAt != null && now - fetchedAt < ttl) return
 
-            val series = chartApi.fetchChart(ticker) ?: return // no data → keep cache
-            dao.upsertPriceSeries(series.toEntity(fetchedAt = now, json = json))
+            // no data (e.g. intraday unavailable for the symbol) → keep whatever cache exists
+            val series = chartApi.fetchChart(ticker, range.yahooRange, range.yahooInterval) ?: return
+            dao.upsertPriceSeries(series.toEntity(rangeKey = range.rangeKey, fetchedAt = now, json = json))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -85,9 +90,13 @@ class TickerRepositoryImpl(
     }
 
     private companion object {
-        // ~6h freshness window: long enough to spare Yahoo repeat hits during a
+        // Daily ranges (1M+): ~6h — long enough to spare Yahoo repeat hits during a
         // browsing session, short enough that a daily close shows up same day.
-        const val PRICE_SERIES_TTL_MILLIS = 6L * 60 * 60 * 1000
+        const val DAILY_TTL_MILLIS = 6L * 60 * 60 * 1000
+
+        // Intraday ranges (1D/1W): ~5min — the series moves all session, so a short
+        // window keeps it live while still shielding Yahoo from per-chip hammering.
+        const val INTRADAY_TTL_MILLIS = 5L * 60 * 1000
     }
 }
 
@@ -95,9 +104,10 @@ class TickerRepositoryImpl(
 @Serializable
 private data class PricePointJson(val t: Long, val c: Double)
 
-private fun PriceSeries.toEntity(fetchedAt: Long, json: Json): PriceSeriesEntity =
+private fun PriceSeries.toEntity(rangeKey: String, fetchedAt: Long, json: Json): PriceSeriesEntity =
     PriceSeriesEntity(
         ticker = ticker,
+        rangeKey = rangeKey,
         currency = currency,
         last = last,
         previousClose = previousClose,

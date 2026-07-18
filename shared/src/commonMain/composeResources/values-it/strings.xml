@@ -33,6 +33,7 @@
     <!-- Price chart card -->
     <string name="detail_price">Prezzo</string>
     <string name="detail_chart_unavailable">Grafico non disponibile</string>
+    <string name="detail_chart_range_unavailable">Dati non disponibili per questo intervallo</string>
 
     <string name="detail_momentum">Momentum</string>
 

@@ -21,7 +21,9 @@ import kotlinx.coroutines.flow.map
 class FakeScannerDao : ScannerDao {
 
     val rows = MutableStateFlow<List<TickerEntity>>(emptyList())
-    val priceSeries = MutableStateFlow<Map<String, PriceSeriesEntity>>(emptyMap())
+    // Keyed by the composite PK (ticker, rangeKey) — one entry per (ticker, range),
+    // mirroring the real `price_series` table.
+    val priceSeries = MutableStateFlow<Map<Pair<String, String>, PriceSeriesEntity>>(emptyMap())
     private val syncMetadata = MutableStateFlow<SyncMetadataEntity?>(null)
 
     override fun observeMomentumLeaders(sort: String, geo: String, limit: Int): Flow<List<TickerEntity>> =
@@ -47,13 +49,13 @@ class FakeScannerDao : ScannerDao {
 
     override fun observeLastSyncedAt(): Flow<Long?> = syncMetadata.map { it?.lastSyncedAt }
 
-    override fun observePriceSeries(ticker: String): Flow<PriceSeriesEntity?> =
-        priceSeries.map { it[ticker] }
+    override fun observePriceSeries(ticker: String, rangeKey: String): Flow<PriceSeriesEntity?> =
+        priceSeries.map { it[ticker to rangeKey] }
 
     override suspend fun upsertPriceSeries(series: PriceSeriesEntity) {
-        priceSeries.value = priceSeries.value + (series.ticker to series)
+        priceSeries.value = priceSeries.value + ((series.ticker to series.rangeKey) to series)
     }
 
-    override suspend fun getPriceSeriesFetchedAt(ticker: String): Long? =
-        priceSeries.value[ticker]?.fetchedAt
+    override suspend fun getPriceSeriesFetchedAt(ticker: String, rangeKey: String): Long? =
+        priceSeries.value[ticker to rangeKey]?.fetchedAt
 }

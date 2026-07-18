@@ -5,6 +5,7 @@ import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.remote.TickerDto
 import app.stockpickers.kmp.data.remote.YahooChartApi
 import app.stockpickers.kmp.data.repository.TickerRepositoryImpl
+import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.LeaderSort
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.fake.FakeScannerDao
@@ -18,10 +19,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -98,6 +101,76 @@ class TickerRepositoryImplTest {
             assertTrue(awaitItem() != null) // a successful sync stamps the clock
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    // ---- price series: per-range cache + range→(range,interval) mapping ----
+
+    // A minimal Yahoo chart body (last 110, close-before-window 100 → +10 / +10%),
+    // enough to exercise the DTO parse and the period-change fields. NEVER hits Yahoo.
+    private val chartFixture = """
+        {"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":110.0,"chartPreviousClose":100.0},
+        "timestamp":[1700000000,1700086400],"indicators":{"quote":[{"close":[105.0,110.0]}]}}],"error":null}}
+    """.trimIndent()
+
+    /** A chart API over a MockEngine that records the range/interval it was asked for. */
+    private fun recordingChartApi(record: (range: String?, interval: String?) -> Unit): YahooChartApi {
+        val engine = MockEngine { request ->
+            record(request.url.parameters["range"], request.url.parameters["interval"])
+            respond(
+                content = chartFixture,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        return YahooChartApi(HttpClient(engine) { install(ContentNegotiation) { json(json) } })
+    }
+
+    @Test
+    fun WHEN_refreshing_a_range_THEN_it_maps_to_yahoo_range_interval_and_caches_under_that_range() = runTest {
+        val dao = FakeScannerDao()
+        var lastRange: String? = null
+        var lastInterval: String? = null
+        val repository = TickerRepositoryImpl(
+            api = failingApi(),
+            dao = dao,
+            chartApi = recordingChartApi { r, i -> lastRange = r; lastInterval = i },
+            json = json,
+        )
+
+        repository.refreshPriceSeries("DAVE", ChartRange.ONE_MONTH)
+
+        // The enum's Yahoo tokens reached the query (daily candles for 1M).
+        assertEquals("1mo", lastRange)
+        assertEquals("1d", lastInterval)
+
+        // Cached under ONE_MONTH — with the period change derived from the window's
+        // previous close (110 vs 100).
+        val cached = repository.observePriceSeries("DAVE", ChartRange.ONE_MONTH).first()
+        assertEquals(110.0, cached?.last)
+        assertEquals(10.0, cached?.periodChange)
+        assertEquals(0.1, cached?.periodChangePercent)
+
+        // A DIFFERENT range is a distinct cache key — untouched by the 1M fetch.
+        assertNull(repository.observePriceSeries("DAVE", ChartRange.SIX_MONTHS).first())
+    }
+
+    @Test
+    fun WHEN_the_range_is_intraday_THEN_an_intraday_interval_is_requested() = runTest {
+        val dao = FakeScannerDao()
+        var lastRange: String? = null
+        var lastInterval: String? = null
+        val repository = TickerRepositoryImpl(
+            api = failingApi(),
+            dao = dao,
+            chartApi = recordingChartApi { r, i -> lastRange = r; lastInterval = i },
+            json = json,
+        )
+
+        repository.refreshPriceSeries("DAVE", ChartRange.ONE_DAY)
+
+        assertEquals("1d", lastRange)   // ChartRange.ONE_DAY.yahooRange
+        assertEquals("5m", lastInterval) // intraday candles, NOT the daily "1d"
+        assertTrue(ChartRange.ONE_DAY.isIntraday)
     }
 
     @Test

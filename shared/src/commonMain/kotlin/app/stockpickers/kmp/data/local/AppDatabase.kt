@@ -7,11 +7,13 @@ import androidx.room3.RoomDatabaseConstructor
 
 // v2 added `tickers.qualityReason` / `tickers.qualityFailedFilter`.
 // v3 added the `price_series` table (cached Yahoo price history for the chart).
+// v4 made `price_series` keyed by (ticker, rangeKey) — one cached row per chart
+//    range (1D/1W/1M/3M/6M/1Y) for the detail chart's range selector.
 // No Migration is written on purpose: every row here is a re-downloadable cache,
 // and the builder already declares `fallbackToDestructiveMigration(dropAllTables = true)`.
 @Database(
     entities = [TickerEntity::class, PriceSeriesEntity::class, SyncMetadataEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @ConstructedBy(AppDatabaseConstructor::class)

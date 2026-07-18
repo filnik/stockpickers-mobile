@@ -1,5 +1,6 @@
 package app.stockpickers.kmp.fake
 
+import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
@@ -34,6 +35,12 @@ class FakeTickerRepository : TickerRepository {
         private set
     var priceSeriesRefreshCount = 0
         private set
+    /** The (ticker, range) the VM last asked to refresh — proves range wiring. */
+    var lastPriceSeriesRefresh: Pair<String, ChartRange>? = null
+        private set
+    /** The range the VM last observed the series for. */
+    var lastObservedRange: ChartRange? = null
+        private set
     var lastLeadersQuery: Triple<LeaderSort, GeoFilter, Int>? = null
         private set
 
@@ -53,9 +60,13 @@ class FakeTickerRepository : TickerRepository {
         return refreshResult
     }
 
-    override fun observePriceSeries(ticker: String): Flow<PriceSeries?> = priceSeriesFlow
+    override fun observePriceSeries(ticker: String, range: ChartRange): Flow<PriceSeries?> {
+        lastObservedRange = range
+        return priceSeriesFlow
+    }
 
-    override suspend fun refreshPriceSeries(ticker: String) {
+    override suspend fun refreshPriceSeries(ticker: String, range: ChartRange) {
         priceSeriesRefreshCount++
+        lastPriceSeriesRefresh = ticker to range
     }
 }

@@ -144,16 +144,23 @@ interface ScannerDao {
     @Query("SELECT COUNT(*) FROM tickers")
     suspend fun count(): Int
 
-    /** Cached price history for the detail chart. Emits null while uncached. */
-    @Query("SELECT * FROM price_series WHERE ticker = :ticker LIMIT 1")
-    fun observePriceSeries(ticker: String): Flow<PriceSeriesEntity?>
+    /**
+     * Cached price history for the detail chart, for ONE (ticker, range). Emits null
+     * while that pair is uncached. [rangeKey] is `ChartRange.rangeKey` — part of the
+     * composite PK, so each range is stored and read independently.
+     */
+    @Query("SELECT * FROM price_series WHERE ticker = :ticker AND rangeKey = :rangeKey LIMIT 1")
+    fun observePriceSeries(ticker: String, rangeKey: String): Flow<PriceSeriesEntity?>
 
     @Upsert
     suspend fun upsertPriceSeries(series: PriceSeriesEntity)
 
-    /** Local fetch time (epoch millis) of the cached series, or null if uncached. */
-    @Query("SELECT fetchedAt FROM price_series WHERE ticker = :ticker LIMIT 1")
-    suspend fun getPriceSeriesFetchedAt(ticker: String): Long?
+    /**
+     * Local fetch time (epoch millis) of the cached (ticker, range) series, or null
+     * if that pair is uncached. Drives the range-dependent freshness gate.
+     */
+    @Query("SELECT fetchedAt FROM price_series WHERE ticker = :ticker AND rangeKey = :rangeKey LIMIT 1")
+    suspend fun getPriceSeriesFetchedAt(ticker: String, rangeKey: String): Long?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSyncMetadata(metadata: SyncMetadataEntity)

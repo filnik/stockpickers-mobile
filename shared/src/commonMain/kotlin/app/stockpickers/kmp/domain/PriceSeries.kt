@@ -26,4 +26,29 @@ data class PriceSeries(
     val last: Double?,
     val previousClose: Double?,
     val points: List<PricePoint>,
-)
+) {
+    /**
+     * The SELECTED PERIOD's absolute change, in the quote currency, or null when
+     * either bound is missing.
+     *
+     * Yahoo's `meta.chartPreviousClose` (mapped to [previousClose]) is the close
+     * just BEFORE the requested window, so `last - previousClose` is the change over
+     * exactly that window — it moves with the range (a 1D delta for `1d`, a 1Y delta
+     * for `1y`). Same value the range selector's coloured figure shows; exposed here
+     * so both Android (Compose) and iOS (SwiftUI, via SKIE) read one source.
+     */
+    val periodChange: Double?
+        get() = if (last != null && previousClose != null) last - previousClose else null
+
+    /**
+     * The selected period's change as a DECIMAL FRACTION (0.05 == +5%), or null when
+     * a bound is missing or [previousClose] is zero (no meaningful base). The UI
+     * multiplies by 100 for display, exactly like `mom_*`.
+     */
+    val periodChangePercent: Double?
+        get() = if (last != null && previousClose != null && previousClose != 0.0) {
+            (last - previousClose) / previousClose
+        } else {
+            null
+        }
+}

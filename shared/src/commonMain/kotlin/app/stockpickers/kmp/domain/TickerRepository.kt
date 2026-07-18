@@ -41,16 +41,18 @@ interface TickerRepository {
     suspend fun refresh(): RefreshResult
 
     /**
-     * Cached price history for [ticker]'s detail chart, from Room. Offline-first
-     * and network-free like [observeTicker]; emits null until [refreshPriceSeries]
-     * has landed a series (or when the symbol has no chart data).
+     * Cached price history for [ticker]'s detail chart AT [range], from Room.
+     * Offline-first and network-free like [observeTicker]; emits null until
+     * [refreshPriceSeries] has landed a series for that (ticker, range) — or when the
+     * symbol has no chart data for it (e.g. intraday on a thin foreign name).
      */
-    fun observePriceSeries(ticker: String): Flow<PriceSeries?>
+    fun observePriceSeries(ticker: String, range: ChartRange): Flow<PriceSeries?>
 
     /**
-     * Fetches [ticker]'s price history from Yahoo into Room, unless the cache is
-     * still fresh (skipped within a short TTL to respect Yahoo's IP rate limit).
+     * Fetches [ticker]'s price history for [range] from Yahoo into Room, unless that
+     * (ticker, range) cache is still fresh. The TTL is range-dependent — short for
+     * intraday windows, longer for daily ones — to respect Yahoo's IP rate limit.
      * Fire-and-forget: it never throws and never blanks the cache on failure.
      */
-    suspend fun refreshPriceSeries(ticker: String)
+    suspend fun refreshPriceSeries(ticker: String, range: ChartRange)
 }

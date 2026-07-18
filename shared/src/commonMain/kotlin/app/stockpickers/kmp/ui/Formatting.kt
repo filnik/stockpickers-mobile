@@ -51,3 +51,22 @@ internal fun formatPriceEur(value: Double?): String =
  */
 internal fun formatQuote(value: Double?, currency: String?): String =
     value?.let { v -> currency?.let { "${v.format(2)} $it" } ?: v.format(2) } ?: "—"
+
+/**
+ * The selected period's ABSOLUTE change, ALWAYS signed (e.g. "+12.34 USD",
+ * "-5.10 TWD"). The explicit "+" marks it as a delta over the window, not a level.
+ * The manual [format] already prints the "-" for negatives, so a positive just gets
+ * a leading "+".
+ */
+internal fun formatSignedQuote(value: Double?, currency: String?): String {
+    if (value == null) return "—"
+    val signed = (if (value >= 0) "+" else "") + value.format(2)
+    return currency?.let { "$signed $it" } ?: signed
+}
+
+/**
+ * The selected period's change as a signed percentage from a DECIMAL FRACTION
+ * (0.021 → "+2.10%", -0.05 → "-5.00%"). Same convention as [formatMomentum].
+ */
+internal fun formatSignedPercent(fraction: Double?): String =
+    fraction?.let { (if (it >= 0) "+" else "") + (it * 100).format(2) + "%" } ?: "—"

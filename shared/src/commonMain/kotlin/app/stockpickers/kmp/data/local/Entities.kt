@@ -40,18 +40,26 @@ data class TickerEntity(
 )
 
 /**
- * Cached Yahoo Finance price history for one ticker, backing the detail chart.
- * Offline-first, exactly like [TickerEntity]: the UI observes this table and the
- * network only ever writes into it.
+ * Cached Yahoo Finance price history for one ticker AT ONE RANGE, backing the
+ * detail chart's range selector. Offline-first, exactly like [TickerEntity]: the UI
+ * observes this table and the network only ever writes into it.
+ *
+ * The primary key is COMPOSITE — (`ticker`, `rangeKey`) — so every window a symbol
+ * is viewed at (`ONE_DAY`, `SIX_MONTHS`, …) is cached as its own row. [rangeKey] is
+ * `ChartRange.rangeKey` (the enum name). Yahoo rate-limits by IP, so caching each
+ * range independently means switching chips serves Room, not a fresh fetch, once a
+ * range has been loaded.
  *
  * [pointsJson] is a `List<PricePoint>` serialized with kotlinx (Room stores no
  * lists natively and this cache is disposable, so a JSON column is simpler than a
  * join table). [fetchedAt] is the local wall-clock (epoch millis) of the fetch,
- * used to skip refetching while the cache is still fresh (~6h).
+ * used to skip refetching while the cache is still fresh (TTL is range-dependent:
+ * short for intraday windows, ~6h for daily ones).
  */
-@Entity(tableName = "price_series")
+@Entity(tableName = "price_series", primaryKeys = ["ticker", "rangeKey"])
 data class PriceSeriesEntity(
-    @PrimaryKey val ticker: String,
+    val ticker: String,
+    val rangeKey: String,
     val currency: String?,
     val last: Double?,
     val previousClose: Double?,

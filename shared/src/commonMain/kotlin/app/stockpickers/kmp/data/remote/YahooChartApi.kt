@@ -32,14 +32,22 @@ class YahooChartApi(
     private val client: HttpClient,
 ) {
     /**
-     * Fetches [ticker]'s [range] daily history, or null when Yahoo has no data
-     * for it (`chart.error` set / `result` absent) or every host refused. A thrown
-     * exception (offline, timeout) is left to the caller — the repository catches
-     * it and keeps whatever is cached.
+     * Fetches [ticker]'s history over [range] at candle size [interval], or null
+     * when Yahoo has no data for it (`chart.error` set / `result` absent) or every
+     * host refused. A thrown exception (offline, timeout) is left to the caller —
+     * the repository catches it and keeps whatever is cached.
+     *
+     * [range]/[interval] are Yahoo's own tokens (e.g. `6mo`/`1d`, `1d`/`5m`). The
+     * caller pairs them from [app.stockpickers.kmp.domain.ChartRange]; an
+     * incompatible pair just yields no data (→ null), never a crash.
      */
-    suspend fun fetchChart(ticker: String, range: String = "6mo"): PriceSeries? {
-        val body = fetchFrom(HOST_PRIMARY, ticker, range)
-            ?: fetchFrom(HOST_FALLBACK, ticker, range)
+    suspend fun fetchChart(
+        ticker: String,
+        range: String = "6mo",
+        interval: String = "1d",
+    ): PriceSeries? {
+        val body = fetchFrom(HOST_PRIMARY, ticker, range, interval)
+            ?: fetchFrom(HOST_FALLBACK, ticker, range, interval)
             ?: return null
         val result = body.chart.result?.firstOrNull() ?: return null
         return result.toPriceSeries(ticker)
@@ -49,11 +57,16 @@ class YahooChartApi(
      * Parsed body from [host], or null to let [fetchChart] fall back to the next
      * host / give up. A 429 lands here as a non-success status → null → fallback.
      */
-    private suspend fun fetchFrom(host: String, ticker: String, range: String): ChartResponse? {
+    private suspend fun fetchFrom(
+        host: String,
+        ticker: String,
+        range: String,
+        interval: String,
+    ): ChartResponse? {
         val response: HttpResponse = client.get("https://$host$CHART_PATH$ticker") {
             header(HttpHeaders.UserAgent, BROWSER_UA)
             url.parameters.append("range", range)
-            url.parameters.append("interval", INTERVAL)
+            url.parameters.append("interval", interval)
         }
         return if (response.status.isSuccess()) response.body() else null
     }
@@ -62,7 +75,6 @@ class YahooChartApi(
         const val HOST_PRIMARY = "query1.finance.yahoo.com"
         const val HOST_FALLBACK = "query2.finance.yahoo.com"
         const val CHART_PATH = "/v8/finance/chart/"
-        const val INTERVAL = "1d"
         const val BROWSER_UA =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"

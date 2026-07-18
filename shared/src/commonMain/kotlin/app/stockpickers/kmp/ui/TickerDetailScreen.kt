@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +24,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -34,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.QualityGate
 import app.stockpickers.kmp.domain.TickerDetail
@@ -43,6 +48,7 @@ import app.stockpickers.kmp.presentation.TickerDetailViewModel
 import androidx.compose.runtime.LaunchedEffect
 import app.stockpickers.kmp.resources.Res
 import app.stockpickers.kmp.resources.cd_back
+import app.stockpickers.kmp.resources.detail_chart_range_unavailable
 import app.stockpickers.kmp.resources.detail_chart_unavailable
 import app.stockpickers.kmp.resources.detail_clenow_score
 import app.stockpickers.kmp.resources.detail_forward_pe
@@ -84,6 +90,7 @@ fun TickerDetailScreen(
     TickerDetailScreen(
         state = state,
         onBackClick = viewModel::onBackClick,
+        onRangeSelected = viewModel::selectRange,
         modifier = modifier,
     )
 }
@@ -93,6 +100,7 @@ fun TickerDetailScreen(
 fun TickerDetailScreen(
     state: TickerDetailUiState,
     onBackClick: () -> Unit,
+    onRangeSelected: (ChartRange) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -133,7 +141,12 @@ fun TickerDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Header(detail)
-                PriceChartCard(state.priceSeries)
+                PriceChartCard(
+                    series = state.priceSeries,
+                    selectedRange = state.selectedRange,
+                    isChartLoading = state.isChartLoading,
+                    onRangeSelected = onRangeSelected,
+                )
                 MomentumCard(detail)
                 TrendCard(detail)
                 FundamentalsCard(detail)
@@ -173,12 +186,22 @@ private fun Header(detail: TickerDetail) {
 }
 
 /**
- * Price chart card. Shows the latest quote (value + currency) when known, then the
- * close-line/area chart. Falls back to "chart unavailable" when the series is
- * absent (uncached / Yahoo had no data / a refresh failed) or carries no points.
+ * Price chart card, TradingView-style. Shows the latest quote (value + currency),
+ * the SELECTED range's change (absolute + %, coloured), a segmented range selector
+ * (1D…1Y), then the close-line/area chart for that range.
+ *
+ * Empty-series handling has two faces so a chip switch never flickers to an error:
+ * while [isChartLoading] a soft spinner stands in for a not-yet-cached range; only
+ * once loading has settled with no points do we show "no data for this range".
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PriceChartCard(series: PriceSeries?) {
+private fun PriceChartCard(
+    series: PriceSeries?,
+    selectedRange: ChartRange,
+    isChartLoading: Boolean,
+    onRangeSelected: (ChartRange) -> Unit,
+) {
     SectionCard(title = stringResource(Res.string.detail_price)) {
         series?.last?.let { last ->
             Text(
@@ -188,15 +211,71 @@ private fun PriceChartCard(series: PriceSeries?) {
                 fontFamily = FontFamily.Monospace,
             )
         }
-        val points = series?.points.orEmpty()
-        if (points.isEmpty()) {
+
+        // The selected PERIOD's change — moves with the range (Yahoo's chartPreviousClose
+        // is the close before the requested window). Hidden when either bound is missing.
+        series?.periodChange?.let { change ->
+            val color = if (change >= 0) PositiveGreen else NegativeRed
             Text(
-                text = stringResource(Res.string.detail_chart_unavailable),
+                text = formatSignedQuote(change, series.currency) +
+                    "  (" + formatSignedPercent(series.periodChangePercent) + ")",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+                color = color,
+            )
+        }
+
+        ChartRangeSelector(selected = selectedRange, onRangeSelected = onRangeSelected)
+
+        val points = series?.points.orEmpty()
+        when {
+            points.isNotEmpty() -> PriceChart(points = points, lineColor = trendColor(series))
+            // Soft loading: a freshly-picked, not-yet-cached range is fetching — keep the
+            // chart's footprint and show a spinner rather than the empty-state text.
+            isChartLoading -> Box(
+                modifier = Modifier.fillMaxWidth().height(CHART_PLACEHOLDER_HEIGHT),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+            else -> Text(
+                text = stringResource(Res.string.detail_chart_range_unavailable),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        } else {
-            PriceChart(points = points, lineColor = trendColor(series))
+        }
+    }
+}
+
+private val CHART_PLACEHOLDER_HEIGHT = 180.dp
+
+/**
+ * The TradingView-style range chips (1D · 1W · 1M · 3M · 6M · 1Y) as a Material3
+ * single-choice segmented row. Labels are domain symbols from [ChartRange] (never
+ * translated, like the momentum-window labels).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChartRangeSelector(
+    selected: ChartRange,
+    onRangeSelected: (ChartRange) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        val ranges = ChartRange.entries
+        ranges.forEachIndexed { index, range ->
+            SegmentedButton(
+                selected = selected == range,
+                onClick = { onRangeSelected(range) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = ranges.size),
+                label = {
+                    Text(
+                        text = range.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                },
+            )
         }
     }
 }
