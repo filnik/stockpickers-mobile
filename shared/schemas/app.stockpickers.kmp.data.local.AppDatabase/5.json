@@ -1,0 +1,283 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 5,
+    "identityHash": "4ec2eef2ecfafc98e5e2e1f3221cd0ab",
+    "entities": [
+      {
+        "tableName": "tickers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ticker` TEXT NOT NULL, `name` TEXT, `country` TEXT, `sector` TEXT, `priceEur` REAL, `updatedAt` TEXT, `clenow` REAL, `mom1m` REAL, `mom2m` REAL, `mom3m` REAL, `mom12m` REAL, `forwardPe` REAL, `peg` REAL, `roic` REAL, `r2` REAL, `qualityPasses` INTEGER, `qualityReason` TEXT, `qualityFailedFilter` TEXT, `wyckoffMarkdown` INTEGER, `duplicateOf` TEXT, PRIMARY KEY(`ticker`))",
+        "fields": [
+          {
+            "fieldPath": "ticker",
+            "columnName": "ticker",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "country",
+            "columnName": "country",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sector",
+            "columnName": "sector",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "priceEur",
+            "columnName": "priceEur",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clenow",
+            "columnName": "clenow",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom1m",
+            "columnName": "mom1m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom2m",
+            "columnName": "mom2m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom3m",
+            "columnName": "mom3m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "mom12m",
+            "columnName": "mom12m",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "forwardPe",
+            "columnName": "forwardPe",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "peg",
+            "columnName": "peg",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "roic",
+            "columnName": "roic",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "r2",
+            "columnName": "r2",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "qualityPasses",
+            "columnName": "qualityPasses",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "qualityReason",
+            "columnName": "qualityReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "qualityFailedFilter",
+            "columnName": "qualityFailedFilter",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "wyckoffMarkdown",
+            "columnName": "wyckoffMarkdown",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "duplicateOf",
+            "columnName": "duplicateOf",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "ticker"
+          ]
+        }
+      },
+      {
+        "tableName": "price_series",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ticker` TEXT NOT NULL, `rangeKey` TEXT NOT NULL, `currency` TEXT, `last` REAL, `previousClose` REAL, `pointsJson` TEXT NOT NULL, `fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`ticker`, `rangeKey`))",
+        "fields": [
+          {
+            "fieldPath": "ticker",
+            "columnName": "ticker",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rangeKey",
+            "columnName": "rangeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "last",
+            "columnName": "last",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "previousClose",
+            "columnName": "previousClose",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "pointsJson",
+            "columnName": "pointsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "ticker",
+            "rangeKey"
+          ]
+        }
+      },
+      {
+        "tableName": "ticker_profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ticker` TEXT NOT NULL, `timelessDescription` TEXT, `timelessUpdatedAt` TEXT, `timelessTtlDays` INTEGER, `currentDescription` TEXT, `currentUpdatedAt` TEXT, `currentTtlDays` INTEGER, `prosJson` TEXT NOT NULL, `consJson` TEXT NOT NULL, `earningsDate` TEXT, `earningsConsensus` TEXT, `earningsDaysAway` INTEGER, `fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`ticker`))",
+        "fields": [
+          {
+            "fieldPath": "ticker",
+            "columnName": "ticker",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timelessDescription",
+            "columnName": "timelessDescription",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "timelessUpdatedAt",
+            "columnName": "timelessUpdatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "timelessTtlDays",
+            "columnName": "timelessTtlDays",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "currentDescription",
+            "columnName": "currentDescription",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currentUpdatedAt",
+            "columnName": "currentUpdatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currentTtlDays",
+            "columnName": "currentTtlDays",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "prosJson",
+            "columnName": "prosJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "consJson",
+            "columnName": "consJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "earningsDate",
+            "columnName": "earningsDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "earningsConsensus",
+            "columnName": "earningsConsensus",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "earningsDaysAway",
+            "columnName": "earningsDaysAway",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "ticker"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `lastSyncedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "lastSyncedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4ec2eef2ecfafc98e5e2e1f3221cd0ab')"
+    ]
+  }
+}

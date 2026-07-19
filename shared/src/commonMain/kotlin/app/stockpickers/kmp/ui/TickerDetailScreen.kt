@@ -1,5 +1,13 @@
 package app.stockpickers.kmp.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,9 +32,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -39,9 +44,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import app.stockpickers.kmp.domain.ChartRange
+import app.stockpickers.kmp.domain.ContentFreshness
+import app.stockpickers.kmp.domain.NextEarnings
 import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.QualityGate
 import app.stockpickers.kmp.domain.TickerDetail
+import app.stockpickers.kmp.domain.TickerProfile
 import app.stockpickers.kmp.presentation.TickerDetailSideEffect
 import app.stockpickers.kmp.presentation.TickerDetailUiState
 import app.stockpickers.kmp.presentation.TickerDetailViewModel
@@ -58,10 +66,20 @@ import app.stockpickers.kmp.resources.detail_not_cached
 import app.stockpickers.kmp.resources.detail_price
 import app.stockpickers.kmp.resources.detail_peg
 import app.stockpickers.kmp.resources.detail_pipeline_updated
+import app.stockpickers.kmp.resources.detail_profile
 import app.stockpickers.kmp.resources.detail_quality_gate
 import app.stockpickers.kmp.resources.detail_r2_fit
 import app.stockpickers.kmp.resources.detail_roic
 import app.stockpickers.kmp.resources.detail_trend_quality
+import app.stockpickers.kmp.resources.profile_cons
+import app.stockpickers.kmp.resources.profile_earnings
+import app.stockpickers.kmp.resources.profile_earnings_in_days
+import app.stockpickers.kmp.resources.profile_earnings_today
+import app.stockpickers.kmp.resources.profile_earnings_tomorrow
+import app.stockpickers.kmp.resources.profile_fresh
+import app.stockpickers.kmp.resources.profile_language
+import app.stockpickers.kmp.resources.profile_pros
+import app.stockpickers.kmp.resources.profile_stale
 import app.stockpickers.kmp.resources.quality_failed_filter
 import app.stockpickers.kmp.resources.quality_not_evaluated
 import app.stockpickers.kmp.resources.quality_passes
@@ -105,20 +123,26 @@ fun TickerDetailScreen(
 ) {
     Scaffold(
         modifier = modifier,
+        containerColor = Background,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         text = state.detail?.ticker ?: "—",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold,
+                        style = monoStyle(18),
+                        color = Primary,
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(Res.string.cd_back))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(Res.string.cd_back),
+                            tint = Primary,
+                        )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Background),
             )
         },
     ) { padding ->
@@ -147,6 +171,9 @@ fun TickerDetailScreen(
                     isChartLoading = state.isChartLoading,
                     onRangeSelected = onRangeSelected,
                 )
+                // Absent for most tickers — upstream only writes a profile for the
+                // names its research pass has covered.
+                state.profile?.let { ProfileCard(it) }
                 MomentumCard(detail)
                 TrendCard(detail)
                 FundamentalsCard(detail)
@@ -163,25 +190,34 @@ fun TickerDetailScreen(
     }
 }
 
+/**
+ * Company name, then country and sector as outline pills.
+ *
+ * `price_eur` is deliberately NOT shown: it is null for every row the pipeline
+ * publishes today, so a headline price here would be a permanent em-dash. The
+ * live quote in the chart card is the real one, in the market's own currency.
+ */
 @Composable
 private fun Header(detail: TickerDetail) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = detail.name ?: detail.ticker,
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
+            color = Primary,
         )
-        Text(
-            text = listOfNotNull(detail.country, detail.sector).joinToString(" · ").ifEmpty { "—" },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = formatPriceEur(detail.priceEur),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 4.dp),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOfNotNull(detail.country, detail.sector).forEach { label ->
+                Text(
+                    text = label.uppercase(),
+                    style = microLabelStyle(),
+                    color = OnSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .border(Hairline, OutlineVariant, CircleShape)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+        }
     }
 }
 
@@ -204,25 +240,17 @@ private fun PriceChartCard(
 ) {
     SectionCard(title = stringResource(Res.string.detail_price)) {
         series?.last?.let { last ->
-            Text(
-                text = formatQuote(last, series.currency),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
-            )
+            Text(text = formatQuote(last, series.currency), style = monoStyle(26, FontWeight.Bold), color = Primary)
         }
 
         // The selected PERIOD's change — moves with the range (Yahoo's chartPreviousClose
         // is the close before the requested window). Hidden when either bound is missing.
         series?.periodChange?.let { change ->
-            val color = if (change >= 0) PositiveGreen else NegativeRed
             Text(
                 text = formatSignedQuote(change, series.currency) +
                     "  (" + formatSignedPercent(series.periodChangePercent) + ")",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
-                color = color,
+                style = monoStyle(14),
+                color = if (change >= 0) PositiveGreen else NegativeRed,
             )
         }
 
@@ -258,27 +286,37 @@ private val CHART_PLACEHOLDER_HEIGHT = 180.dp
  * single-choice segmented row. Labels are domain symbols from [ChartRange] (never
  * translated, like the momentum-window labels).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChartRangeSelector(
     selected: ChartRange,
     onRangeSelected: (ChartRange) -> Unit,
 ) {
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        val ranges = ChartRange.entries
-        ranges.forEachIndexed { index, range ->
-            SegmentedButton(
-                selected = selected == range,
-                onClick = { onRangeSelected(range) },
-                shape = SegmentedButtonDefaults.itemShape(index = index, count = ranges.size),
-                label = {
-                    Text(
-                        text = range.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                    )
-                },
-            )
+    // The same rounded track with a filled navy thumb as the board's tabs — one
+    // segmented control for the whole app, never a second style for the same job.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceTile, CircleShape)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        ChartRange.entries.forEach { range ->
+            val active = selected == range
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(if (active) PrimaryContainer else Color.Transparent, CircleShape)
+                    .clickable { onRangeSelected(range) }
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = range.label,
+                    style = microLabelStyle(),
+                    color = if (active) Color.White else OnSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
@@ -290,40 +328,159 @@ private fun trendColor(series: PriceSeries?): Color {
     return if (last != null && previous != null && last < previous) NegativeRed else PositiveGreen
 }
 
+/**
+ * The written profile: what the company is, the case for and against it, and when it
+ * next reports.
+ *
+ * Two pills sit in the header, and they say different kinds of thing. Freshness is a
+ * property of the DATA (how old the text is against its own TTL) and is hidden when
+ * unknowable — an absent badge is honest, a guessed one is not. The language pill is a
+ * property of the PRODUCT: this text is always Italian while the UI may not be, and
+ * naming that is better than leaving an English-locale reader to wonder.
+ *
+ * Every section is dropped when empty rather than shown with a placeholder: upstream
+ * fills these blocks independently, so partial rows are ordinary, not broken.
+ */
+@Composable
+private fun ProfileCard(profile: TickerProfile) {
+    SectionCard(title = stringResource(Res.string.detail_profile)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            when (profile.freshness) {
+                ContentFreshness.FRESH ->
+                    Pill(stringResource(Res.string.profile_fresh), PositiveTint, PositiveOnTint)
+                ContentFreshness.STALE ->
+                    Pill(stringResource(Res.string.profile_stale), WarnTint, WarnAmber)
+                // No badge at all: we cannot date this text, so we claim nothing.
+                ContentFreshness.UNKNOWN -> Unit
+            }
+            Pill(stringResource(Res.string.profile_language), InfoTint, OnSurfaceVariant)
+        }
+
+        profile.timelessDescription?.let {
+            Text(text = it, style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+        }
+        profile.currentDescription?.let {
+            Text(text = it, style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+        }
+
+        if (profile.pros.isNotEmpty() || profile.cons.isNotEmpty()) {
+            HorizontalDivider()
+            ArgumentList(
+                title = stringResource(Res.string.profile_pros),
+                items = profile.pros,
+                accent = PositiveOnTint,
+            )
+            ArgumentList(
+                title = stringResource(Res.string.profile_cons),
+                items = profile.cons,
+                accent = NegativeRed,
+            )
+        }
+
+        profile.nextEarnings?.let { earnings ->
+            HorizontalDivider()
+            // Three stacked pieces, not one line. `consensus` reads like a rating but
+            // is a paragraph of prose upstream — inlining it after the date would run a
+            // 300-character sentence through a monospaced one-liner.
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = stringResource(Res.string.profile_earnings).uppercase(),
+                    style = microLabelStyle(),
+                    color = OnSurfaceVariant,
+                )
+                earningsWhen(earnings)?.let {
+                    Text(text = it, style = monoStyle(13), color = OnSurface)
+                }
+                earnings.consensus?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One side of the argument, as a titled list of bullets.
+ *
+ * The accent colour lives on the bullet, not the text: a paragraph of coloured prose
+ * is hard to read, while a coloured marker carries the same for/against signal at a
+ * glance. Renders nothing when there is nothing to say.
+ */
+@Composable
+private fun ArgumentList(title: String, items: List<String>, accent: Color) {
+    if (items.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(text = title.uppercase(), style = microLabelStyle(), color = accent)
+        items.forEach { item ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .size(5.dp)
+                        .background(accent, CircleShape),
+                )
+                Text(
+                    text = item,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnSurface,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The factual half of the earnings block: "2026-08-05  ·  in 12 days", or null when
+ * upstream gave neither.
+ *
+ * The countdown is only ever present when it could be computed from the date — the
+ * domain refuses to replay upstream's frozen one — so this never has to decide whether
+ * to trust the number.
+ */
+@Composable
+private fun earningsWhen(earnings: NextEarnings): String? = listOfNotNull(
+    earnings.date,
+    earnings.daysAway?.let { days ->
+        when {
+            days < 0 -> null // already reported; the date alone tells the story
+            days == 0 -> stringResource(Res.string.profile_earnings_today)
+            days == 1 -> stringResource(Res.string.profile_earnings_tomorrow)
+            else -> stringResource(Res.string.profile_earnings_in_days, days)
+        }
+    },
+).joinToString("  ·  ").takeIf { it.isNotEmpty() }
+
 @Composable
 private fun MomentumCard(detail: TickerDetail) {
     SectionCard(title = stringResource(Res.string.detail_momentum)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            MomentumCell("1M", detail.mom1m)
-            MomentumCell("2M", detail.mom2m)
-            MomentumCell("3M", detail.mom3m)
-            MomentumCell("12M", detail.mom12m)
+            MomentumCell("1M", detail.mom1m, Modifier.weight(1f))
+            MomentumCell("2M", detail.mom2m, Modifier.weight(1f))
+            MomentumCell("3M", detail.mom3m, Modifier.weight(1f))
+            MomentumCell("12M", detail.mom12m, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun MomentumCell(label: String, fraction: Double?) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = formatMomentum(fraction),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = when {
-                fraction == null -> MaterialTheme.colorScheme.onSurfaceVariant
-                fraction >= 0 -> PositiveGreen
-                else -> NegativeRed
-            },
-        )
-    }
+private fun MomentumCell(label: String, fraction: Double?, modifier: Modifier = Modifier) {
+    MetricTile(
+        label = label,
+        value = formatMomentum(fraction),
+        valueColor = when {
+            fraction == null -> OnSurfaceVariant
+            fraction >= 0 -> PositiveGreen
+            else -> NegativeRed
+        },
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -366,18 +523,20 @@ private fun QualityGateCard(gate: QualityGate?) {
         )
     }
 
+    // The verdict as a tinted pill, matching the web's quality chip. On the tinted
+    // fill the green is darkened for contrast — the plain green does not clear AA.
+    val (fill, content) = when (passes) {
+        true -> PositiveTint to PositiveOnTint
+        false -> NegativeTint to NegativeRed
+        null -> InfoTint to OnSurfaceVariant
+    }
     SectionCard(title = stringResource(Res.string.detail_quality_gate)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(icon, contentDescription = null, tint = tint)
-            Text(
-                text = headline,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = tint,
-            )
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+            Pill(text = headline, fill = fill, content = content)
         }
         gate?.failedFilter?.takeIf { it.isNotBlank() }?.let {
             MetricRow(stringResource(Res.string.quality_failed_filter), it)
@@ -392,40 +551,77 @@ private fun QualityGateCard(gate: QualityGate?) {
     }
 }
 
+/**
+ * The universal surface: white, a hairline border, 8dp corners, NO shadow.
+ * Borders rather than elevation is the defining choice of this design — it gives
+ * the screen the flat, printed quality of a research sheet.
+ *
+ * The title is the signature 10sp uppercase micro-label.
+ */
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(CardRadius),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(Hairline, OutlineVariant),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(text = title.uppercase(), style = microLabelStyle(), color = OnSurfaceVariant)
             content()
         }
     }
 }
 
 @Composable
-private fun MetricRow(label: String, value: String) {
+private fun MetricRow(label: String, value: String, valueColor: Color = OnSurface) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
-        )
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+        Text(text = value, style = monoStyle(15), color = valueColor)
     }
+}
+
+/**
+ * A borderless tinted tile — the third level of the surface nesting the web uses:
+ * tinted page, white card, tinted tile. Used for the momentum readings.
+ */
+@Composable
+private fun MetricTile(label: String, value: String, valueColor: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .background(SurfaceTile, RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = label, style = microLabelStyle(), color = OnSurfaceVariant)
+        // 14sp, not 16: four tiles across a phone leave ~60dp of text width, and a
+        // 12-month momentum runs to seven characters ("+135.7%"). At 16sp the
+        // percent sign fell off the end — the one character that gives the number
+        // its meaning.
+        Text(text = value, style = monoStyle(14, FontWeight.Bold), color = valueColor, maxLines = 1)
+    }
+}
+
+/** A tight, fully-rounded status pill: tinted fill, uppercase micro-label text. */
+@Composable
+private fun Pill(text: String, fill: Color, content: Color) {
+    Text(
+        text = text.uppercase(),
+        style = microLabelStyle(),
+        color = content,
+        maxLines = 1,
+        modifier = Modifier
+            .background(fill, CircleShape)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
 }
 
 @Composable

@@ -7,6 +7,22 @@ build/
 # Local configuration — contains sdk.dir AND the Supabase anon key. NEVER commit.
 local.properties
 
+# Design tooling: personal GCP / Stitch project identifiers. The committed
+# `.example` alongside it documents the shape.
+docs/stitch.env
+
+# Secrets / signing material. None of these exist today; listed so a public repo
+# stays that way if one ever lands here by accident.
+.env
+.env.*
+*.jks
+*.keystore
+*.p12
+*.pem
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+
 # Android
 *.apk
 *.aab

@@ -8,6 +8,7 @@ import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.domain.TickerDetail
+import app.stockpickers.kmp.domain.TickerProfile
 import app.stockpickers.kmp.domain.TickerRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ class FakeTickerRepository : TickerRepository {
     val countsFlow = MutableStateFlow(GeoCounts())
     val tickerFlow = MutableStateFlow<TickerDetail?>(null)
     val priceSeriesFlow = MutableStateFlow<PriceSeries?>(null)
+    val profileFlow = MutableStateFlow<TickerProfile?>(null)
     val lastSyncedFlow = MutableStateFlow<Long?>(null)
 
     var refreshResult: RefreshResult = RefreshResult.Success
@@ -40,6 +42,11 @@ class FakeTickerRepository : TickerRepository {
         private set
     /** The range the VM last observed the series for. */
     var lastObservedRange: ChartRange? = null
+        private set
+    var profileRefreshCount = 0
+        private set
+    /** The ticker the VM last asked to refresh a profile for. */
+    var lastProfileRefresh: String? = null
         private set
     var lastLeadersQuery: Triple<LeaderSort, GeoFilter, Int>? = null
         private set
@@ -68,5 +75,12 @@ class FakeTickerRepository : TickerRepository {
     override suspend fun refreshPriceSeries(ticker: String, range: ChartRange) {
         priceSeriesRefreshCount++
         lastPriceSeriesRefresh = ticker to range
+    }
+
+    override fun observeProfile(ticker: String): Flow<TickerProfile?> = profileFlow
+
+    override suspend fun refreshProfile(ticker: String) {
+        profileRefreshCount++
+        lastProfileRefresh = ticker
     }
 }

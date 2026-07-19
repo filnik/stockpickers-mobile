@@ -55,4 +55,21 @@ interface TickerRepository {
      * Fire-and-forget: it never throws and never blanks the cache on failure.
      */
     suspend fun refreshPriceSeries(ticker: String, range: ChartRange)
+
+    /**
+     * [ticker]'s written profile from Room. Offline-first and network-free like
+     * [observeTicker].
+     *
+     * Emits null both while uncached AND when upstream simply has no profile for the
+     * symbol — the caller cannot tell them apart, and does not need to: either way
+     * there is nothing to show. Most tickers fall in the second case.
+     */
+    fun observeProfile(ticker: String): Flow<TickerProfile?>
+
+    /**
+     * Fetches [ticker]'s profile from Supabase into Room, unless the cached copy is
+     * still fresh. Fire-and-forget with the same contract as [refreshPriceSeries]: it
+     * never throws and never blanks the cache on failure.
+     */
+    suspend fun refreshProfile(ticker: String)
 }

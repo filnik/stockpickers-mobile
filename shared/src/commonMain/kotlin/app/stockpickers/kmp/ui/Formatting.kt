@@ -28,7 +28,7 @@ internal fun formatClenow(value: Double?): String = value?.format(2) ?: "—"
 
 /**
  * A plain ratio (P/E, PEG, R²). Unitless — do NOT append '%'.
- * Mirrors the web client's `ratio()` (investing/web `analisi-titolo`).
+ * Mirrors the upstream web client's `ratio()`.
  */
 internal fun formatRatio(value: Double?, decimals: Int = 2): String =
     value?.format(decimals) ?: "—"

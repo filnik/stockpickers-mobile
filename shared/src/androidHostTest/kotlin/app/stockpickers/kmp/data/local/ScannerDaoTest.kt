@@ -216,4 +216,63 @@ class ScannerDaoTest {
         assertEquals(1, c.ita)
         assertTrue(0 == c.asia)
     }
+
+    // ---- ticker profiles -------------------------------------------------
+
+    private fun profile(ticker: String, description: String?, fetchedAt: Long = 1_000L) =
+        TickerProfileEntity(
+            ticker = ticker,
+            timelessDescription = description,
+            timelessUpdatedAt = null,
+            timelessTtlDays = null,
+            currentDescription = null,
+            currentUpdatedAt = null,
+            currentTtlDays = null,
+            prosJson = "[]",
+            consJson = "[]",
+            earningsDate = null,
+            earningsConsensus = null,
+            earningsDaysAway = null,
+            fetchedAt = fetchedAt,
+        )
+
+    @Test
+    fun WHEN_a_profile_is_upserted_THEN_it_round_trips_through_real_sqlite() = runBlocking {
+        dao.upsertProfile(profile("DAVE", "Makes chips."))
+
+        val stored = dao.observeProfile("DAVE").first()
+        assertEquals("Makes chips.", stored?.timelessDescription)
+        assertEquals(1_000L, dao.getProfileFetchedAt("DAVE"))
+    }
+
+    @Test
+    fun WHEN_a_ticker_has_no_profile_row_THEN_both_reads_answer_null() = runBlocking {
+        assertEquals(null, dao.observeProfile("NOPE").first())
+        // Null here is what tells the repository it has never asked — as opposed to a
+        // tombstone, which carries a fetchedAt and suppresses the refetch.
+        assertEquals(null, dao.getProfileFetchedAt("NOPE"))
+    }
+
+    // NOTE: there is deliberately NO test that upserts the same primary key twice —
+    // for ANY entity, not just this one. `@Upsert` INSERTs and, on a uniqueness
+    // violation, falls back to UPDATE; Room decides which it is by string-matching the
+    // exception message for "unique" / 1555 / 2067. This source set runs with
+    // `isReturnDefaultValues = true` (shared/build.gradle.kts), which stubs the
+    // android.jar constructor of `android.database.SQLException`, so the message never
+    // reaches the object and `getMessage()` returns null. Room then re-throws instead
+    // of updating. Verified directly: `SQLException("...").message` is null here.
+    //
+    // It is an artefact of THIS environment, not a defect: on a device the real
+    // constructor keeps the message, and on iOS the exception is a Kotlin class with
+    // no android.jar involved. Do not "fix" the DAO because of a failure here.
+
+    @Test
+    fun WHEN_a_tombstone_is_stored_THEN_it_is_a_real_row_with_no_content() = runBlocking {
+        dao.upsertProfile(profile("EMPTY", description = null, fetchedAt = 5_000L))
+
+        val stored = dao.observeProfile("EMPTY").first()
+        assertTrue(stored != null) // the row EXISTS...
+        assertEquals(null, stored.timelessDescription) // ...and says upstream had nothing
+        assertEquals(5_000L, dao.getProfileFetchedAt("EMPTY")) // which is what gates the refetch
+    }
 }

@@ -9,11 +9,18 @@ import androidx.room3.RoomDatabaseConstructor
 // v3 added the `price_series` table (cached Yahoo price history for the chart).
 // v4 made `price_series` keyed by (ticker, rangeKey) — one cached row per chart
 //    range (1D/1W/1M/3M/6M/1Y) for the detail chart's range selector.
+// v5 added the `ticker_profiles` table (the written profile from Supabase's
+//    `descriptions_cache`: description, pros/cons, next earnings).
 // No Migration is written on purpose: every row here is a re-downloadable cache,
 // and the builder already declares `fallbackToDestructiveMigration(dropAllTables = true)`.
 @Database(
-    entities = [TickerEntity::class, PriceSeriesEntity::class, SyncMetadataEntity::class],
-    version = 4,
+    entities = [
+        TickerEntity::class,
+        PriceSeriesEntity::class,
+        TickerProfileEntity::class,
+        SyncMetadataEntity::class,
+    ],
+    version = 5,
     exportSchema = true,
 )
 @ConstructedBy(AppDatabaseConstructor::class)

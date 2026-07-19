@@ -86,9 +86,24 @@ internal fun PriceChart(
     // Aim for ~5 evenly spaced labels landing on real point indices — few enough that
     // consecutive daily labels fall in distinct months (no "Mar Mar"), and always at
     // valid indices so the formatter never runs off the end.
+    //
+    // The `offset` is what keeps the last label READABLE. Labels start half a step in,
+    // so none of them lands on the first or last point: an edge label has only half a
+    // slot of width, and Vico ellipsises what does not fit — the symptom was a final
+    // tick reading ".." instead of "Jul". `addExtremeLabelPadding` alone was not
+    // enough (it reserves room, but not enough room), and scroll is disabled below, so
+    // there is no other margin to borrow from. Half a step in, every label has a full
+    // slot on both sides.
+    //
+    // The flag stays for the degenerate case: with very few points `spacing` is 1, the
+    // offset rounds to 0, and labels do land on the extremes again.
     val xItemPlacer = remember(points.size) {
         val spacing = (points.size / X_LABEL_TARGET).coerceAtLeast(1)
-        HorizontalAxis.ItemPlacer.aligned(spacing = { spacing })
+        HorizontalAxis.ItemPlacer.aligned(
+            spacing = { spacing },
+            offset = { spacing / 2 },
+            addExtremeLabelPadding = true,
+        )
     }
 
     val modelProducer = remember { CartesianChartModelProducer() }

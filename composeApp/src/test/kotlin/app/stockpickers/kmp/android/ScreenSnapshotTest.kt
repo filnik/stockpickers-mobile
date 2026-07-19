@@ -2,14 +2,17 @@ package app.stockpickers.kmp.android
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
+import app.stockpickers.kmp.domain.ContentFreshness
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
+import app.stockpickers.kmp.domain.NextEarnings
 import app.stockpickers.kmp.domain.PricePoint
 import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.QualityGate
 import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.domain.TickerDetail
+import app.stockpickers.kmp.domain.TickerProfile
 import kotlin.math.sin
 import app.stockpickers.kmp.presentation.MomentumLeadersUiState
 import app.stockpickers.kmp.presentation.TickerDetailUiState
@@ -73,14 +76,66 @@ class ScreenSnapshotTest {
             qualityGate = QualityGate(passesFilters = true, reason = null, failedFilter = null),
             updatedAt = "2026-01-15T10:00:00Z",
         ),
-        priceSeries = pricesFixture(),
+        // Quote and period change still render (they come from last/previousClose);
+        // only the plot area falls back to its deterministic placeholder. See
+        // pricesFixture for why the points are dropped.
+        priceSeries = pricesFixture().copy(points = emptyList()),
+        profile = profileFixture(),
         isLoading = false,
     )
 
     /**
-     * A deterministic ~6-month daily close series (rising, with a wave), so the
-     * Vico chart renders identically each run. Stands in for a live Yahoo fetch —
-     * the snapshot never touches the network.
+     * A profile with every block filled, so the snapshot covers the whole card.
+     *
+     * The LENGTHS are taken from real rows — bullets run to ~270 characters and the
+     * misleadingly-named `consensus` to ~280 — because a fixture of tidy short strings
+     * would hide exactly the wrapping this card has to survive. (Live rows are written
+     * in Italian, which is what the card's language badge is for; the fixture is
+     * English so the baseline stays readable to anyone reviewing this repo.)
+     */
+    private fun profileFixture() = TickerProfile(
+        ticker = "AAPL",
+        timelessDescription = "Apple Inc. (headquartered in Cupertino, California) designs " +
+            "and sells smartphones, computers and digital services, around an ecosystem " +
+            "that ties hardware, software and recurring subscriptions together.",
+        currentDescription = "The latest quarter beat expectations on services, while " +
+            "hardware stayed flat.",
+        pros = listOf(
+            "Services margins have expanded for eight consecutive quarters, shifting the " +
+                "revenue mix towards recurring income that earns roughly twice the " +
+                "margin of hardware.",
+            "An installed base of more than two billion active devices.",
+        ),
+        cons = listOf(
+            "Exposure to the Chinese supply chain, on both production and end demand.",
+            "iPhone growth has stalled in mature markets.",
+        ),
+        nextEarnings = NextEarnings(
+            date = "2026-08-05",
+            daysAway = 12,
+            // Named "consensus" upstream but written as prose, not as a rating.
+            consensus = "Q3 FY2026 results on 5 August. Watch for: durability of services " +
+                "margins, iPhone guidance after the replacement cycle, and commentary on " +
+                "AI capital spending.",
+        ),
+        timelessFreshness = ContentFreshness.FRESH,
+        currentFreshness = ContentFreshness.FRESH,
+    )
+
+    /**
+     * A ~6-month daily close series (rising, with a wave). Stands in for a live Yahoo
+     * fetch — the snapshot never touches the network.
+     *
+     * The DATA is deterministic; the drawing is not. `PriceChart` feeds Vico from a
+     * `LaunchedEffect` that suspends on `runTransaction`, and that race against the
+     * capture is lost roughly one run in three — measured: 1 failure per 3 verifies,
+     * with the plot area blank in the loser. Whichever state a baseline is recorded in,
+     * the other one then fails, so callers drop the points (see detailState) and the
+     * chart falls back to its placeholder. A screenshot guard that cries wolf a third
+     * of the time is worse than one that covers slightly less.
+     *
+     * Nothing is really lost: the chart never drew reliably here, so no baseline has
+     * ever asserted anything about it. Verify the chart on a device or a simulator.
      */
     private fun pricesFixture(): PriceSeries {
         val baseEpoch = 1_700_000_000L
@@ -130,6 +185,24 @@ class ScreenSnapshotTest {
             MaterialTheme {
                 TickerDetailScreen(
                     state = detailState(),
+                    onBackClick = {},
+                )
+            }
+        }
+    }
+
+    /**
+     * The MAJORITY case, and the reason it gets its own baseline: upstream covers only
+     * part of the universe, so most tickers open with no profile at all. The card must
+     * vanish cleanly rather than leave an empty frame or a row of em-dashes.
+     */
+    @Test
+    fun tickerDetailScreen_withoutProfile() {
+        captureRoboImage(filePath = "build/outputs/roborazzi/TickerDetailScreen_no_profile.png") {
+            PreviewContextConfigurationEffect()
+            MaterialTheme {
+                TickerDetailScreen(
+                    state = detailState().copy(profile = null),
                     onBackClick = {},
                 )
             }

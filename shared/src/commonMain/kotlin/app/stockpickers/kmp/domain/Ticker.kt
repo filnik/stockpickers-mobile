@@ -38,11 +38,10 @@ enum class MomentumWindow(val apiKey: String, val label: String) {
 }
 
 /**
- * The leaders board's ranking key — mirror of the web's `AcceleratingSort` +
- * `SORT_KEY` (`investing/web/lib/picks-filters.ts`), whose tabs are
- * `Forza · 1M · 2M · 3M` (`components/picks/AcceleratingTabs.tsx`).
+ * The leaders board's ranking key — mirror of the upstream web client's
+ * `AcceleratingSort`, whose tabs are `Forza · 1M · 2M · 3M`.
  *
- * [STRENGTH] ("Forza", the web's `aggregate`) ranks by `clenow` — the global
+ * [STRENGTH] ("Forza", upstream's `aggregate`) ranks by `clenow` — the global
  * trend-strength leader — and is the default, first tab. The other three rank by
  * their momentum window. The quality gate is IDENTICAL for every sort, so
  * changing the ranking key can never surface a name the gate wouldn't admit.

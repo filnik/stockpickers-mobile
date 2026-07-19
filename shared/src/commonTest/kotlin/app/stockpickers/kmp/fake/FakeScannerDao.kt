@@ -5,6 +5,7 @@ import app.stockpickers.kmp.data.local.PriceSeriesEntity
 import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.SyncMetadataEntity
 import app.stockpickers.kmp.data.local.TickerEntity
+import app.stockpickers.kmp.data.local.TickerProfileEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -24,6 +25,7 @@ class FakeScannerDao : ScannerDao {
     // Keyed by the composite PK (ticker, rangeKey) — one entry per (ticker, range),
     // mirroring the real `price_series` table.
     val priceSeries = MutableStateFlow<Map<Pair<String, String>, PriceSeriesEntity>>(emptyMap())
+    val profiles = MutableStateFlow<Map<String, TickerProfileEntity>>(emptyMap())
     private val syncMetadata = MutableStateFlow<SyncMetadataEntity?>(null)
 
     override fun observeMomentumLeaders(sort: String, geo: String, limit: Int): Flow<List<TickerEntity>> =
@@ -58,4 +60,14 @@ class FakeScannerDao : ScannerDao {
 
     override suspend fun getPriceSeriesFetchedAt(ticker: String, rangeKey: String): Long? =
         priceSeries.value[ticker to rangeKey]?.fetchedAt
+
+    override fun observeProfile(ticker: String): Flow<TickerProfileEntity?> =
+        profiles.map { it[ticker] }
+
+    override suspend fun upsertProfile(profile: TickerProfileEntity) {
+        profiles.value = profiles.value + (profile.ticker to profile)
+    }
+
+    override suspend fun getProfileFetchedAt(ticker: String): Long? =
+        profiles.value[ticker]?.fetchedAt
 }

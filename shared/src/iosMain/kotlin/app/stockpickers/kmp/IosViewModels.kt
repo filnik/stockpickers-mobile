@@ -2,7 +2,9 @@ package app.stockpickers.kmp
 
 import app.stockpickers.kmp.domain.GetTickerDetailUseCase
 import app.stockpickers.kmp.domain.ObservePriceSeriesUseCase
+import app.stockpickers.kmp.domain.ObserveTickerProfileUseCase
 import app.stockpickers.kmp.domain.RefreshPriceSeriesUseCase
+import app.stockpickers.kmp.domain.RefreshTickerProfileUseCase
 import app.stockpickers.kmp.navigation.AppNavKey
 import app.stockpickers.kmp.presentation.TickerDetailViewModel
 import org.koin.mp.KoinPlatform
@@ -26,6 +28,8 @@ fun tickerDetailViewModel(ticker: String): TickerDetailViewModel {
         navKey = AppNavKey.TickerDetail(ticker),
         getTickerDetail = koin.get<GetTickerDetailUseCase>(),
         observePriceSeries = koin.get<ObservePriceSeriesUseCase>(),
+        observeTickerProfile = koin.get<ObserveTickerProfileUseCase>(),
         refreshPriceSeries = koin.get<RefreshPriceSeriesUseCase>(),
+        refreshTickerProfile = koin.get<RefreshTickerProfileUseCase>(),
     )
 }

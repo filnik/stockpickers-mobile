@@ -5,32 +5,46 @@ import app.stockpickers.kmp.data.local.PriceSeriesEntity
 import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.SyncMetadataEntity
 import app.stockpickers.kmp.data.local.TickerEntity
+import app.stockpickers.kmp.data.local.TickerProfileEntity
+import app.stockpickers.kmp.data.remote.DescriptionsRowDto
+import app.stockpickers.kmp.data.remote.SupabaseDescriptionsApi
+import app.stockpickers.kmp.data.remote.nextEarningsOrNull
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.remote.TickerDto
 import app.stockpickers.kmp.data.remote.YahooChartApi
 import app.stockpickers.kmp.domain.ChartRange
+import app.stockpickers.kmp.domain.ContentFreshness
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
+import app.stockpickers.kmp.domain.NextEarnings
 import app.stockpickers.kmp.domain.PricePoint
 import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.QualityGate
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.domain.TickerDetail
+import app.stockpickers.kmp.domain.TickerProfile
 import app.stockpickers.kmp.domain.TickerRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.daysUntil
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
 import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 class TickerRepositoryImpl(
     private val api: SupabaseScannerApi,
     private val dao: ScannerDao,
     private val chartApi: YahooChartApi,
+    private val descriptionsApi: SupabaseDescriptionsApi,
     private val json: Json,
 ) : TickerRepository {
 
@@ -128,10 +142,46 @@ class TickerRepositoryImpl(
         }
     }
 
+    @OptIn(ExperimentalTime::class)
+    override fun observeProfile(ticker: String): Flow<TickerProfile?> =
+        dao.observeProfile(ticker).map { entity -> entity?.toDomain(json, Clock.System.now()) }
+
+    /**
+     * Unlike the price series, this ALWAYS writes a row — even when upstream has no
+     * profile for the symbol. Most tickers have none, so without that tombstone the
+     * common case would re-hit the network on every visit to the screen; the TTL gate
+     * below can only suppress a fetch it has a `fetchedAt` for.
+     */
+    @OptIn(ExperimentalTime::class)
+    override suspend fun refreshProfile(ticker: String) {
+        try {
+            val now = Clock.System.now().toEpochMilliseconds()
+            val fetchedAt = dao.getProfileFetchedAt(ticker)
+            if (fetchedAt != null && now - fetchedAt < PROFILE_TTL_MILLIS) return
+
+            val row = descriptionsApi.fetchProfile(ticker)
+            // Key the row by the ticker we were ASKED for, not by the one upstream
+            // echoes back (which is uppercased there): the reader looks it up with the
+            // local spelling, and a case mismatch would make every row invisible.
+            dao.upsertProfile(row.toEntity(localTicker = ticker, fetchedAt = now, json = json))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Offline / server error / breaking payload change: graceful — whatever is
+            // cached survives, and no tombstone is written (we learned nothing).
+        }
+    }
+
     private companion object {
         // Daily ranges (1M+): ~6h — long enough to spare Yahoo repeat hits during a
         // browsing session, short enough that a daily close shows up same day.
         const val DAILY_TTL_MILLIS = 6L * 60 * 60 * 1000
+
+        // Profiles: ~6h. This is the age of OUR COPY, not of the text — upstream
+        // regenerates at most daily, so anything shorter would just re-download the
+        // same paragraphs. Distinct from the ttl_days the pipeline publishes, which
+        // only tells the reader whether the text itself has gone stale.
+        const val PROFILE_TTL_MILLIS = 6L * 60 * 60 * 1000
 
         // Intraday ranges (1D/1W): ~5min — the series moves all session, so a short
         // window keeps it live while still shielding Yahoo from per-chip hammering.
@@ -174,6 +224,136 @@ private fun PriceSeriesEntity.toDomain(json: Json): PriceSeries =
         points = json.decodeFromString<List<PricePointJson>>(pointsJson)
             .map { PricePoint(epochSeconds = it.t, close = it.c) },
     )
+
+// --- Ticker profile -------------------------------------------------------------
+//
+// Upstream's own TTL defaults, applied HERE rather than as defaults on the DTO: they
+// are policy about how long a kind of text stays true, not a fact about the wire
+// format. Keeping them out of the DTO also means it decodes correctly under any Json
+// configuration instead of leaning on the shared instance staying lenient.
+
+/** "What the company does" changes slowly. */
+private const val TIMELESS_TTL_DAYS = 30
+
+/** "Where it stands now" does not. */
+private const val CURRENT_TTL_DAYS = 7
+
+/**
+ * Wire row → cache row. A null [DescriptionsRowDto] means upstream has no profile for
+ * this ticker: that produces a TOMBSTONE — an all-null row whose only real content is
+ * [TickerProfileEntity.fetchedAt] — so we remember having asked.
+ */
+private fun DescriptionsRowDto?.toEntity(
+    localTicker: String,
+    fetchedAt: Long,
+    json: Json,
+): TickerProfileEntity {
+    // `next_earnings` arrives as an object on some rows and a bare string on others;
+    // narrow it once, here, so nothing downstream has to know that.
+    val earnings = this?.current?.nextEarningsOrNull(json)
+    return TickerProfileEntity(
+        ticker = localTicker,
+        timelessDescription = this?.timeless?.description,
+        timelessUpdatedAt = this?.timeless?.updatedAt,
+        timelessTtlDays = this?.timeless?.ttlDays,
+        currentDescription = this?.current?.description,
+        currentUpdatedAt = this?.current?.updatedAt,
+        currentTtlDays = this?.current?.ttlDays,
+        prosJson = json.encodeToString(this?.current?.pro.orEmpty()),
+        consJson = json.encodeToString(this?.current?.con.orEmpty()),
+        earningsDate = earnings?.date,
+        earningsConsensus = earnings?.consensus,
+        // Upstream publishes a float as readily as an int; round once, here.
+        earningsDaysAway = earnings?.daysAway?.toInt(),
+        fetchedAt = fetchedAt,
+    )
+}
+
+/**
+ * Cache row → domain, or NULL when there is nothing worth showing.
+ *
+ * This is the ONE place that decides a profile is empty. Both platforms then reduce
+ * to a single null check, so Compose and SwiftUI cannot drift into two different
+ * notions of "blank" — which they would, given the iOS detail screen is written
+ * separately in Swift. It also keeps the tombstone an implementation detail of the
+ * cache: the domain never sees one.
+ */
+@OptIn(ExperimentalTime::class)
+private fun TickerProfileEntity.toDomain(json: Json, now: Instant): TickerProfile? {
+    val pros = json.decodeFromString<List<String>>(prosJson)
+    val cons = json.decodeFromString<List<String>>(consJson)
+    val earnings = if (earningsDate != null || earningsConsensus != null) {
+        NextEarnings(
+            date = earningsDate,
+            // Recomputed, never replayed: upstream's countdown was correct on the day
+            // it was written and drifts by a day every day after — offline, for weeks.
+            // Its snapshot stands in only when there IS a date and we failed to parse
+            // it; with no date at all there is nothing to anchor a countdown to, and a
+            // number we cannot check is worse than no number.
+            daysAway = earningsDate?.let { daysUntilOrNull(it, now) ?: earningsDaysAway },
+            consensus = earningsConsensus,
+        )
+    } else {
+        null
+    }
+    val hasCurrentText = !currentDescription.isNullOrBlank() || pros.isNotEmpty() || cons.isNotEmpty()
+    if (timelessDescription.isNullOrBlank() && !hasCurrentText && earnings == null) return null
+
+    return TickerProfile(
+        ticker = ticker,
+        timelessDescription = timelessDescription?.takeIf { it.isNotBlank() },
+        currentDescription = currentDescription?.takeIf { it.isNotBlank() },
+        pros = pros,
+        cons = cons,
+        nextEarnings = earnings,
+        // A block with no text has no age worth reporting.
+        timelessFreshness = if (timelessDescription.isNullOrBlank()) {
+            ContentFreshness.UNKNOWN
+        } else {
+            freshnessOf(timelessUpdatedAt, timelessTtlDays, TIMELESS_TTL_DAYS, now)
+        },
+        currentFreshness = if (!hasCurrentText) {
+            ContentFreshness.UNKNOWN
+        } else {
+            freshnessOf(currentUpdatedAt, currentTtlDays, CURRENT_TTL_DAYS, now)
+        },
+    )
+}
+
+/**
+ * Age of the text against the TTL published with it.
+ *
+ * An absent or unparseable timestamp yields UNKNOWN, never FRESH — same fail-safe as
+ * the quality gate: we do not assert a verdict we cannot prove.
+ */
+@OptIn(ExperimentalTime::class)
+private fun freshnessOf(
+    updatedAt: String?,
+    ttlDays: Int?,
+    defaultTtlDays: Int,
+    now: Instant,
+): ContentFreshness {
+    val written = updatedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        ?: return ContentFreshness.UNKNOWN
+    val ttl = (ttlDays ?: defaultTtlDays).coerceAtLeast(1).days
+    return if (now - written <= ttl) ContentFreshness.FRESH else ContentFreshness.STALE
+}
+
+/**
+ * Whole days from today to [date], in the device's time zone. Negative once the date
+ * has passed — the UI decides what to do with that; this only reports.
+ *
+ * Accepts both a bare date ("2026-02-05") and a full timestamp, because the upstream
+ * field is free-form JSON rather than a typed column. Null when it is neither.
+ */
+@OptIn(ExperimentalTime::class)
+private fun daysUntilOrNull(date: String, now: Instant): Int? {
+    val tz = TimeZone.currentSystemDefault()
+    val target = runCatching { LocalDate.parse(date) }.getOrNull()
+        ?: runCatching { Instant.parse(date).toLocalDateTime(tz).date }.getOrNull()
+        ?: return null
+    return now.toLocalDateTime(tz).date.daysUntil(target)
+}
 
 private fun GeoCountsRow.toDomain() = GeoCounts(
     total = total,

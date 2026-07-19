@@ -4,6 +4,7 @@ import app.stockpickers.kmp.data.local.AppDatabase
 import app.stockpickers.kmp.data.local.DatabaseBuilderFactory
 import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.buildDatabase
+import app.stockpickers.kmp.data.remote.SupabaseDescriptionsApi
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.remote.YahooChartApi
 import app.stockpickers.kmp.data.repository.TickerRepositoryImpl
@@ -12,7 +13,9 @@ import app.stockpickers.kmp.domain.GetMomentumLeadersUseCase
 import app.stockpickers.kmp.domain.GetTickerDetailUseCase
 import app.stockpickers.kmp.domain.ObserveLastSyncedAtUseCase
 import app.stockpickers.kmp.domain.ObservePriceSeriesUseCase
+import app.stockpickers.kmp.domain.ObserveTickerProfileUseCase
 import app.stockpickers.kmp.domain.RefreshPriceSeriesUseCase
+import app.stockpickers.kmp.domain.RefreshTickerProfileUseCase
 import app.stockpickers.kmp.domain.RefreshTickersUseCase
 import app.stockpickers.kmp.domain.TickerRepository
 import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
@@ -54,12 +57,19 @@ val coreModule = module {
     }
     single { SupabaseScannerApi(get()) }
     single { YahooChartApi(get()) }
+    single { SupabaseDescriptionsApi(get()) }
 
     single<AppDatabase> { get<DatabaseBuilderFactory>().buildDatabase() }
     single<ScannerDao> { get<AppDatabase>().scannerDao() }
 
     single<TickerRepository> {
-        TickerRepositoryImpl(api = get(), dao = get(), chartApi = get(), json = get())
+        TickerRepositoryImpl(
+            api = get(),
+            dao = get(),
+            chartApi = get(),
+            descriptionsApi = get(),
+            json = get(),
+        )
     }
     single { GetMomentumLeadersUseCase(get()) }
     single { GetGeoCountsUseCase(get()) }
@@ -68,6 +78,8 @@ val coreModule = module {
     single { RefreshTickersUseCase(get()) }
     single { ObservePriceSeriesUseCase(get()) }
     single { RefreshPriceSeriesUseCase(get()) }
+    single { ObserveTickerProfileUseCase(get()) }
+    single { RefreshTickerProfileUseCase(get()) }
 
     viewModel {
         MomentumLeadersViewModel(
@@ -84,7 +96,9 @@ val coreModule = module {
             navKey = params.get(),
             getTickerDetail = get(),
             observePriceSeries = get(),
+            observeTickerProfile = get(),
             refreshPriceSeries = get(),
+            refreshTickerProfile = get(),
         )
     }
 }

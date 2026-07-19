@@ -11,21 +11,20 @@ import kotlinx.coroutines.flow.Flow
 interface ScannerDao {
 
     /**
-     * MOMENTUM LEADERS — SQL mirror of the authoritative implementation in
-     * `investing/web/lib/queries.ts::getMomentumLeaders` (the gate + the window
-     * ranking) and `investing/web/lib/picks-filters.ts` (the `Forza` ranking and
-     * the geo buckets).
+     * MOMENTUM LEADERS — SQL mirror of the authoritative upstream implementation:
+     * its leaders query (the gate + the window ranking) and its filter definitions
+     * (the `Forza` ranking and the geo buckets).
      *
-     * !! THIS LOGIC IS OWNED BY THE PYTHON PIPELINE + THE WEB CLIENT. !!
+     * !! THIS LOGIC IS OWNED BY THE UPSTREAM PIPELINE + ITS WEB CLIENT. !!
      * Do not "improve" or reinvent the thresholds here: the quality verdict,
      * the Wyckoff phase and the ADR dedup are all computed upstream and merely
      * READ by this client. If the rules change upstream, port them across —
      * they must not drift.
      *
      * ── THE COUNTRY LIST BELOW IS THE FOURTH COPY. KNOWN, ACCEPTED DEBT. ──
-     * `picks-filters.ts` already warns that its geo mapping mirrors Python's
-     * `strategies/pe_switch.py::_PE_SWITCH_BUCKET_COUNTRIES` and the server-side
-     * `queries.ts::BUCKET_COUNTRIES` — "keep the three in sync". This SQL makes
+     * Upstream already keeps the same geo mapping in three places — its filter
+     * definitions, its server-side query and the pipeline itself — with a standing
+     * note to "keep the three in sync". This SQL makes
      * it FOUR. That is a deliberate trade, not an oversight: the alternative is
      * an extra network round-trip per chip to a source of truth this
      * offline-first client cannot reach while offline. The cost is that a country
@@ -161,6 +160,25 @@ interface ScannerDao {
      */
     @Query("SELECT fetchedAt FROM price_series WHERE ticker = :ticker AND rangeKey = :rangeKey LIMIT 1")
     suspend fun getPriceSeriesFetchedAt(ticker: String, rangeKey: String): Long?
+
+    /**
+     * One ticker's cached written profile. Emits null while uncached — and keeps
+     * emitting a row whose content columns are all null once we have learned that
+     * upstream has no profile for it (the tombstone). Telling those apart is the
+     * repository's business, not this screen's.
+     */
+    @Query("SELECT * FROM ticker_profiles WHERE ticker = :ticker LIMIT 1")
+    fun observeProfile(ticker: String): Flow<TickerProfileEntity?>
+
+    @Upsert
+    suspend fun upsertProfile(profile: TickerProfileEntity)
+
+    /**
+     * Local fetch time (epoch millis) of the cached profile, or null if we have never
+     * asked. Non-null for tombstones too — that is exactly what stops us re-asking.
+     */
+    @Query("SELECT fetchedAt FROM ticker_profiles WHERE ticker = :ticker LIMIT 1")
+    suspend fun getProfileFetchedAt(ticker: String): Long?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSyncMetadata(metadata: SyncMetadataEntity)

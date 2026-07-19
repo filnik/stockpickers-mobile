@@ -5,9 +5,12 @@ import androidx.lifecycle.viewModelScope
 import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.GetTickerDetailUseCase
 import app.stockpickers.kmp.domain.ObservePriceSeriesUseCase
+import app.stockpickers.kmp.domain.ObserveTickerProfileUseCase
 import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.RefreshPriceSeriesUseCase
+import app.stockpickers.kmp.domain.RefreshTickerProfileUseCase
 import app.stockpickers.kmp.domain.TickerDetail
+import app.stockpickers.kmp.domain.TickerProfile
 import app.stockpickers.kmp.navigation.AppNavKey
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -26,6 +29,13 @@ data class TickerDetailUiState(
     val detail: TickerDetail? = null,
     /** Cached price history for the SELECTED range; null = uncached or no data → placeholder. */
     val priceSeries: PriceSeries? = null,
+    /**
+     * The written profile, or null when there is none to show — which is the ORDINARY
+     * case, since upstream only covers part of the universe. There is deliberately no
+     * companion loading flag: a spinner over a block of prose is noise, so the card
+     * simply appears once the text lands.
+     */
+    val profile: TickerProfile? = null,
     /** The chart range chip currently selected (TradingView-style 1D…1Y). */
     val selectedRange: ChartRange = ChartRange.DEFAULT,
     /** True until Room's first emission for this ticker arrives. */
@@ -60,7 +70,9 @@ class TickerDetailViewModel(
     private val navKey: AppNavKey.TickerDetail,
     getTickerDetail: GetTickerDetailUseCase,
     observePriceSeries: ObservePriceSeriesUseCase,
+    observeTickerProfile: ObserveTickerProfileUseCase,
     private val refreshPriceSeries: RefreshPriceSeriesUseCase,
+    private val refreshTickerProfile: RefreshTickerProfileUseCase,
 ) : ViewModel() {
 
     private val _sideEffect = Channel<TickerDetailSideEffect>(Channel.BUFFERED)
@@ -74,20 +86,29 @@ class TickerDetailViewModel(
     private val isChartLoading = MutableStateFlow(false)
 
     /**
-     * Driven entirely by Room (the scanner row and the cached price series), so a
-     * background refresh re-renders this screen for free. The price series follows
-     * [selectedRange]: picking a chip re-points the observed Room row to that range
-     * (network-free), while the fetch for it runs in [init].
+     * Driven entirely by Room (the scanner row, the cached price series and the cached
+     * profile), so a background refresh re-renders this screen for free. The price
+     * series follows [selectedRange]: picking a chip re-points the observed Room row to
+     * that range (network-free), while the fetch for it runs in [init].
+     *
+     * EVERY source here must emit without waiting for the network. `combine` produces
+     * nothing until all five have emitted at least once, so a flow that only emitted
+     * after a fetch would pin the whole screen on `isLoading = true` — forever, offline.
+     * All of these are Room flows, which emit null immediately for an absent row; that
+     * is the property the screen's loading state rests on, and it is what
+     * `TickerDetailViewModelTest` guards.
      */
     val uiState: StateFlow<TickerDetailUiState> = combine(
         getTickerDetail(navKey.ticker),
         selectedRange.flatMapLatest { range -> observePriceSeries(navKey.ticker, range) },
+        observeTickerProfile(navKey.ticker),
         selectedRange,
         isChartLoading,
-    ) { detail, priceSeries, range, chartLoading ->
+    ) { detail, priceSeries, profile, range, chartLoading ->
         TickerDetailUiState(
             detail = detail,
             priceSeries = priceSeries,
+            profile = profile,
             selectedRange = range,
             isLoading = false,
             isChartLoading = chartLoading,
@@ -123,6 +144,11 @@ class TickerDetailViewModel(
         for (range in ChartRange.entries.filter { it.isIntraday }) {
             viewModelScope.launch { refreshPriceSeries(navKey.ticker, range) }
         }
+
+        // The written profile: once per screen, not per range. Fire-and-forget like the
+        // chart — TTL-throttled and non-throwing in the repository, so offline simply
+        // leaves whatever is cached (usually nothing) on screen.
+        viewModelScope.launch { refreshTickerProfile(navKey.ticker) }
     }
 
     /**

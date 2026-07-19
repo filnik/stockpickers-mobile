@@ -44,9 +44,21 @@
     <string name="detail_fundamentals">Fondamentali</string>
     <string name="detail_forward_pe">P/E prospettico</string>
 
+    <string name="detail_profile">Scheda titolo</string>
+    <string name="profile_language">In italiano</string>
+    <string name="profile_fresh">Aggiornata</string>
+    <string name="profile_stale">Da aggiornare</string>
+    <string name="profile_pros">A favore</string>
+    <string name="profile_cons">Contro</string>
+    <string name="profile_earnings">Prossima trimestrale</string>
+    <string name="profile_earnings_in_days">tra %1$d giorni</string>
+    <string name="profile_earnings_tomorrow">domani</string>
+    <string name="profile_earnings_today">oggi</string>
+
     <string name="detail_quality_gate">Filtro qualità</string>
     <string name="quality_passes">Supera i filtri di qualità</string>
     <string name="quality_rejected">Respinto dal filtro qualità</string>
     <string name="quality_not_evaluated">Non valutato</string>
     <string name="quality_failed_filter">Filtro fallito</string>
+    <string name="col_title">Titolo</string>
 </resources>

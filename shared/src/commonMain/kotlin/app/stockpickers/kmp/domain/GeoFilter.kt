@@ -1,9 +1,8 @@
 package app.stockpickers.kmp.domain
 
 /**
- * The country chips on the leaders board — mirror of the web's `GeoBucket`
- * (`investing/web/lib/picks-filters.ts`), plus an [ALL] entry for the unfiltered
- * board ("Tutti").
+ * The country chips on the leaders board — mirror of the upstream web client's
+ * `GeoBucket`, plus an [ALL] entry for the unfiltered board ("Tutti").
  *
  * Only the bucket KEYS and labels live here. The country strings each bucket
  * expands to are in the DAO's SQL, because filtering runs in SQLite — see the

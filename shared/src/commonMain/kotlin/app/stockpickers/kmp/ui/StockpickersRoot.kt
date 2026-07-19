@@ -17,7 +17,7 @@ import app.stockpickers.kmp.ui.navigation.rememberNavigator
  */
 @Composable
 fun StockpickersRoot(modifier: Modifier = Modifier) {
-    MaterialTheme {
+    StockpickersTheme {
         Surface(
             modifier = modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,

@@ -67,6 +67,59 @@ data class PriceSeriesEntity(
     val fetchedAt: Long,
 )
 
+/**
+ * One ticker's cached written profile (description, pros/cons, next earnings), from
+ * Supabase's `descriptions_cache` table. Offline-first like the rest: the UI observes
+ * this table, the network only writes into it.
+ *
+ * Its own table rather than columns on [TickerEntity] because it is a different
+ * upstream source on a different lifecycle, and because coverage is sparse — folding
+ * thirteen mostly-null columns into every row of a ~1800-row universe would cost the
+ * table its shape for the handful of symbols that actually have a profile.
+ *
+ * Shape follows the rule already used elsewhere here: VARIABLE-length data gets a
+ * JSON column ([prosJson]/[consJson], as with [PriceSeriesEntity.pointsJson]), while
+ * a FIXED record is flattened into columns (`earnings*`, as `quality_gate` already is
+ * on [TickerEntity]).
+ *
+ * TWO CLOCKS, deliberately kept apart:
+ *  - [timelessUpdatedAt]/[timelessTtlDays] and their `current*` twins are UPSTREAM's,
+ *    describing how old the TEXT is. They only drive a badge.
+ *  - [fetchedAt] is the local wall clock of our own fetch, and is the only thing that
+ *    decides when to re-download.
+ * Fusing them would mean re-fetching on every open precisely for the stalest symbols,
+ * since a stale row stays stale until the pipeline regenerates it.
+ *
+ * A row with every content column null is a TOMBSTONE: upstream has no profile for
+ * this ticker and we recorded that fact, so the TTL gate can suppress the refetch.
+ * Without it the majority case — no profile — would re-hit the network every time the
+ * screen opened.
+ */
+@Entity(tableName = "ticker_profiles")
+data class TickerProfileEntity(
+    @PrimaryKey val ticker: String,
+    val timelessDescription: String?,
+    val timelessUpdatedAt: String?,
+    val timelessTtlDays: Int?,
+    val currentDescription: String?,
+    val currentUpdatedAt: String?,
+    val currentTtlDays: Int?,
+    /** `List<String>` serialized with kotlinx; "[]" when upstream has none. */
+    val prosJson: String,
+    val consJson: String,
+    /** Raw ISO date as published, e.g. "2026-02-05". */
+    val earningsDate: String?,
+    val earningsConsensus: String?,
+    /**
+     * Upstream's countdown AS PUBLISHED — a snapshot, already wrong by the time it is
+     * read. Kept only as a fallback for when [earningsDate] is missing; the value the
+     * UI shows is recomputed from that date.
+     */
+    val earningsDaysAway: Int?,
+    /** Epoch millis of OUR fetch. Drives the TTL gate, and marks tombstones as fetched. */
+    val fetchedAt: Long,
+)
+
 /** Single-row table holding sync bookkeeping (id is always [SYNC_ID]). */
 @Entity(tableName = "sync_metadata")
 data class SyncMetadataEntity(

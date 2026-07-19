@@ -70,9 +70,27 @@
     <string name="detail_peg" translatable="false">PEG</string>
     <string name="detail_roic" translatable="false">ROIC</string>
 
+    <!-- Profile card. The TEXT it frames is generated upstream and is always in
+         Italian, whatever the device locale — the row carries no language field.
+         These labels are translated; `profile_language` exists to say so out loud
+         rather than letting an English-locale reader think something broke. -->
+    <string name="detail_profile">Company profile</string>
+    <string name="profile_language">In Italian</string>
+    <string name="profile_fresh">Up to date</string>
+    <string name="profile_stale">May be outdated</string>
+    <string name="profile_pros">For</string>
+    <string name="profile_cons">Against</string>
+    <string name="profile_earnings">Next results</string>
+    <!-- e.g. "in 12 days". Shown only when the countdown could be computed. -->
+    <string name="profile_earnings_in_days">in %1$d days</string>
+    <string name="profile_earnings_tomorrow">tomorrow</string>
+    <string name="profile_earnings_today">today</string>
+
     <string name="detail_quality_gate">Quality gate</string>
     <string name="quality_passes">Passes quality filters</string>
     <string name="quality_rejected">Rejected by quality gate</string>
     <string name="quality_not_evaluated">Not evaluated</string>
     <string name="quality_failed_filter">Failed filter</string>
+    <!-- Column header above the ticker column on the leaders table. -->
+    <string name="col_title">Title</string>
 </resources>

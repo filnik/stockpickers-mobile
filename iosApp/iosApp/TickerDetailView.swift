@@ -69,16 +69,22 @@ struct TickerDetailView: View {
     private func detailList(_ d: TickerDetail) -> some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(d.name ?? d.ticker).font(.title2).bold()
-                    Text([d.country, d.sector].compactMap { $0 }.joined(separator: " · "))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(d.name ?? d.ticker)
+                        .font(.title2).bold()
+                        .foregroundStyle(Palette.primary)
+                    HStack(spacing: 6) {
+                        ForEach([d.country, d.sector].compactMap { $0 }, id: \.self) { label in
+                            MicroLabel(text: label)
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                .overlay(Capsule().stroke(Palette.border, lineWidth: 1))
+                        }
+                    }
                 }
                 .padding(.vertical, 4)
             }
 
-            Section("Price") {
+            Section(header: MicroLabel(text: "Price")) {
                 PriceSection(
                     series: model.state.priceSeries,
                     selectedRange: model.state.selectedRange,
@@ -87,25 +93,31 @@ struct TickerDetailView: View {
                 )
             }
 
-            Section("Momentum") {
+            // Absent for most tickers: upstream only writes a profile for the names
+            // its research pass has covered.
+            if let profile = model.state.profile {
+                profileSection(profile)
+            }
+
+            Section(header: MicroLabel(text: "Momentum")) {
                 momentumRow("1M", d.mom1m)
                 momentumRow("2M", d.mom2m)
                 momentumRow("3M", d.mom3m)
                 momentumRow("12M", d.mom12m)
             }
 
-            Section("Trend quality") {
+            Section(header: MicroLabel(text: "Trend quality")) {
                 metricRow("Clenow score", decimal(d.clenow))
                 metricRow("R² (fit)", decimal(d.r2))
             }
 
-            Section("Fundamentals") {
+            Section(header: MicroLabel(text: "Fundamentals")) {
                 metricRow("Forward P/E", decimal(d.forwardPe))
                 metricRow("PEG", decimal(d.peg))
                 metricRow("ROIC", percent(d.roic))
             }
 
-            Section("Quality gate") {
+            Section(header: MicroLabel(text: "Quality gate")) {
                 qualityRow(d.qualityGate)
             }
 
@@ -117,29 +129,139 @@ struct TickerDetailView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Palette.page)
+        .listRowBackground(Palette.card)
         .listStyle(.insetGrouped)
+    }
+
+    /// The written profile — the SwiftUI twin of `ProfileCard` in TickerDetailScreen.kt.
+    ///
+    /// Two badges sit at the top and they say different kinds of thing. Freshness is a
+    /// property of the DATA (how old the text is against its own TTL) and is omitted
+    /// when unknowable — an absent badge is honest, a guessed one is not. The language
+    /// badge is a property of the PRODUCT: this text is always Italian while the UI may
+    /// not be, and naming that beats leaving an English reader to wonder.
+    ///
+    /// Strings are hardcoded here rather than read from composeResources — see the note
+    /// on this file's other labels; the iOS detail screen is deliberately native.
+    @ViewBuilder
+    private func profileSection(_ profile: TickerProfile) -> some View {
+        Section(header: MicroLabel(text: "Company profile")) {
+            HStack(spacing: 6) {
+                switch profile.freshness {
+                case .fresh:
+                    badge("Up to date", fill: Palette.positive.opacity(0.12), tint: Palette.positive)
+                case .stale:
+                    badge("May be outdated", fill: Palette.warn.opacity(0.18), tint: Palette.warn)
+                // No badge at all: we cannot date this text, so we claim nothing.
+                case .unknown: EmptyView()
+                }
+                badge("In Italian", fill: Palette.navy.opacity(0.08), tint: Palette.muted)
+            }
+
+            if let timeless = profile.timelessDescription {
+                Text(timeless).foregroundStyle(Palette.primary)
+            }
+            if let current = profile.currentDescription {
+                Text(current).font(.footnote).foregroundStyle(.secondary)
+            }
+
+            if !profile.pros.isEmpty {
+                argumentList("For", profile.pros, tint: Palette.positive)
+            }
+            if !profile.cons.isEmpty {
+                argumentList("Against", profile.cons, tint: Palette.negative)
+            }
+
+            if let earnings = profile.nextEarnings {
+                VStack(alignment: .leading, spacing: 4) {
+                    MicroLabel(text: "Next results")
+                    // Three stacked pieces, not one line. `consensus` reads like a
+                    // rating but is a paragraph of prose upstream — inlining it after
+                    // the date would run a 300-character sentence through a monospaced
+                    // one-liner.
+                    if let when_ = earningsWhen(earnings) {
+                        Text(when_)
+                            .font(.system(.footnote, design: .monospaced).weight(.semibold))
+                            .foregroundStyle(Palette.primary)
+                    }
+                    if let consensus = earnings.consensus, !consensus.isEmpty {
+                        Text(consensus).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One side of the argument. The tint lives on the BULLET, not the prose: a
+    /// paragraph of coloured text is hard to read, while a coloured marker carries the
+    /// same for/against signal at a glance.
+    private func argumentList(_ title: String, _ items: [String], tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.5)
+                .foregroundStyle(tint)
+            ForEach(items, id: \.self) { item in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle().fill(tint).frame(width: 5, height: 5).padding(.top, 6)
+                    Text(item).font(.footnote).foregroundStyle(Palette.primary)
+                }
+            }
+        }
+    }
+
+    private func badge(_ text: String, fill: Color, tint: Color) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .tracking(0.5)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Capsule().fill(fill))
+    }
+
+    /// The factual half of the earnings block: "2026-08-05 · in 12 days", or nil.
+    ///
+    /// The countdown is only ever present when the shared layer could compute it from
+    /// the date — it refuses to replay upstream's frozen one — so there is no judgement
+    /// to make here about whether to trust the number.
+    private func earningsWhen(_ earnings: NextEarnings) -> String? {
+        var parts: [String] = []
+        if let date = earnings.date { parts.append(date) }
+        // Int? crosses the Obj-C bridge boxed, like every other Kotlin primitive.
+        if let days = earnings.daysAway?.intValue {
+            switch days {
+            case 0: parts.append("today")
+            case 1: parts.append("tomorrow")
+            case let d where d > 1: parts.append("in \(d) days")
+            default: break // already reported; the date alone tells the story
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "  ·  ")
     }
 
     private func momentumRow(_ label: String, _ value: KotlinDouble?) -> some View {
         HStack {
-            Text(label).foregroundStyle(.secondary)
+            Text(label).foregroundStyle(Palette.muted)
             Spacer()
             if let v = value?.doubleValue {
                 Text(String(format: "%+.1f%%", v * 100))
-                    .foregroundStyle(v >= 0 ? .green : .red)
-                    .monospacedDigit()
-                    .bold()
+                    .foregroundStyle(v >= 0 ? Palette.positive : Palette.negative)
+                    .font(.system(.body, design: .monospaced).weight(.semibold))
             } else {
-                Text("—").foregroundStyle(.secondary)
+                Text("—").foregroundStyle(Palette.muted)
             }
         }
     }
 
     private func metricRow(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).foregroundStyle(.secondary)
+            Text(label).foregroundStyle(Palette.muted)
             Spacer()
-            Text(value).monospacedDigit()
+            Text(value)
+                .font(.system(.body, design: .monospaced).weight(.semibold))
+                .foregroundStyle(Palette.primary)
         }
     }
 
@@ -147,11 +269,11 @@ struct TickerDetailView: View {
     private func qualityRow(_ gate: QualityGate?) -> some View {
         if gate?.passesFilters?.boolValue == true {
             Label("Passes quality filters", systemImage: "checkmark.seal.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(Palette.positive)
         } else if gate?.passesFilters?.boolValue == false {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Excluded by filters", systemImage: "xmark.seal.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.negative)
                 if let reason = gate?.reason {
                     Text(reason).font(.footnote).foregroundStyle(.secondary)
                 }
@@ -193,6 +315,36 @@ private struct ChartPoint: Identifiable {
 /// ViewModel exposes via SKIE. Line + gradient area of daily closes, green/red by
 /// whether the last quote is above the previous close, with an interactive scrubber
 /// (`.chartXSelection`) that drops a lollipop on the nearest day.
+/// The design tokens, mirroring `Theme.kt` in :shared. There is no dark theme —
+/// the product ships a single light scheme, so these are plain constants.
+///
+/// The list itself stays a native SwiftUI `List`: fighting the platform to
+/// reproduce Compose's card stack would cost the free behaviour (scroll physics,
+/// swipe, Dynamic Type) and gain nothing. It is tinted, not rebuilt.
+private enum Palette {
+    static let page = Color(red: 0.976, green: 0.976, blue: 1.0)      // #f9f9ff
+    static let card = Color.white
+    static let tile = Color(red: 0.906, green: 0.933, blue: 1.0)      // #e7eeff
+    static let border = Color(red: 0.769, green: 0.776, blue: 0.812)  // #c4c6cf
+    static let primary = Color(red: 0.0, green: 0.055, blue: 0.141)   // #000e24
+    static let navy = Color(red: 0.008, green: 0.141, blue: 0.282)    // #022448
+    static let muted = Color(red: 0.263, green: 0.278, blue: 0.306)   // #43474e
+    static let positive = Color(red: 0.0, green: 0.541, blue: 0.239)  // #008a3d
+    static let negative = Color(red: 0.729, green: 0.102, blue: 0.102) // #ba1a1a
+    static let warn = Color(red: 0.604, green: 0.435, blue: 0.118)     // #9a6f1e
+}
+
+/// The signature 10pt uppercase micro-label used above every block of data.
+private struct MicroLabel: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .tracking(0.5)
+            .foregroundStyle(Palette.muted)
+    }
+}
+
 /// Money formatting, mirroring `Formatting.kt` in :shared so both platforms read
 /// identically: currencies with a widely-read symbol lead with it ("$150.00"), the
 /// rest trail their ISO code ("35.55 TWD"). Kept native here because this screen
@@ -261,7 +413,7 @@ private struct PriceSection: View {
         return last >= prev
     }
 
-    private var tint: Color { isUp ? .green : .red }
+    private var tint: Color { isUp ? Palette.positive : Palette.negative }
 
     /// The point under the scrubber. x is an index, so this is a direct lookup —
     /// clamped because the selection can settle just past either end.
@@ -344,7 +496,7 @@ private struct PriceSection: View {
                     Text(String(format: "(%+.2f%%)", pct * 100)).monospacedDigit()
                 }
                 .font(.subheadline).bold()
-                .foregroundStyle(up ? .green : .red)
+                .foregroundStyle(up ? Palette.positive : Palette.negative)
             }
         }
     }
@@ -390,8 +542,12 @@ private struct PriceSection: View {
         let yLo = dataLo - pad
         let yHi = dataHi + pad
         // ~5 labels, always on real point indices so every tick has a date to show.
+        // Starting HALF A STEP IN keeps the last one readable: a label centred on the
+        // final point has only half a slot of width and gets clipped by the cell edge.
+        // Mirrors the same `offset` on the Compose chart — verified there that plot
+        // padding alone was not enough, the label was still being cut short.
         let labelStride = max(pts.count / 5, 1)
-        let labelIndices = Array(stride(from: 0, to: pts.count, by: labelStride))
+        let labelIndices = Array(stride(from: labelStride / 2, to: pts.count, by: labelStride))
         let labelFormatter = xLabelFormatter
         return Chart {
             ForEach(pts) { point in
@@ -468,6 +624,11 @@ private struct PriceSection: View {
                 }
             }
         }
+        // Inset the plot so the labels on the FIRST and LAST ticks have somewhere to
+        // go. Without this the outer half of the last label is clipped by the list
+        // cell, which reaches the screen edge. Mirrors `addExtremeLabelPadding` on the
+        // Compose chart — same problem, same remedy, deliberately the same magnitude.
+        .chartPlotStyle { $0.padding(.horizontal, 12) }
         .frame(height: 200)
     }
 }

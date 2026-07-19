@@ -17,13 +17,16 @@ import kotlinx.serialization.Serializable
  * (`/v8/finance/chart/{symbol}`). One GET yields the daily close series plus the
  * latest quote and currency — no batching, no per-ticker loop.
  *
- * TWO NON-OBVIOUS RULES, both learned the hard way (see the investing pipeline's
- * `yfinance_access.md`):
- *  - A BROWSER User-Agent is MANDATORY. Yahoo answers 429 to the default Ktor
- *    agent; [BROWSER_UA] makes the request look like Chrome.
- *  - Yahoo rate-limits by IP. A 429 (or any non-2xx) on `query1` is retried once
- *    on `query2` — the two hosts throttle independently. This client never loops
- *    or hammers; freshness caching (6h, in the repository) is the real mitigation.
+ * TWO NON-OBVIOUS RULES, both learned the hard way:
+ *  - The endpoint expects a browser User-Agent and answers 429 to Ktor's default
+ *    one, so [BROWSER_UA] supplies a standard desktop agent string.
+ *  - Yahoo throttles by IP. A 429 (or any non-2xx) on `query1` is retried once on
+ *    `query2` — the two hosts throttle independently. This client never loops or
+ *    hammers: it fetches one symbol when the user opens a chart, and freshness
+ *    caching (6h daily / 5min intraday, in the repository) is the real mitigation.
+ *
+ * The endpoint is public but undocumented and unofficial, and this is a personal-
+ * scale client. Anything wider should front it with a proper data source.
  *
  * The app's tickers are already Yahoo symbols (`DAVE`, `2330.TW`, `BPE.MI`,
  * `8411.T`, `005930.KS`), so no symbol mapping is needed.
