@@ -11,6 +11,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,7 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,7 +58,6 @@ import androidx.compose.runtime.LaunchedEffect
 import app.stockpickers.kmp.resources.Res
 import app.stockpickers.kmp.resources.cd_back
 import app.stockpickers.kmp.resources.detail_chart_range_unavailable
-import app.stockpickers.kmp.resources.detail_chart_unavailable
 import app.stockpickers.kmp.resources.detail_clenow_score
 import app.stockpickers.kmp.resources.detail_forward_pe
 import app.stockpickers.kmp.resources.detail_fundamentals
@@ -230,7 +230,7 @@ private fun Header(detail: TickerDetail) {
  * while [isChartLoading] a soft spinner stands in for a not-yet-cached range; only
  * once loading has settled with no points do we show "no data for this range".
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PriceChartCard(
     series: PriceSeries?,
@@ -238,29 +238,59 @@ private fun PriceChartCard(
     isChartLoading: Boolean,
     onRangeSelected: (ChartRange) -> Unit,
 ) {
-    SectionCard(title = stringResource(Res.string.detail_price)) {
-        series?.last?.let { last ->
-            Text(text = formatQuote(last, series.currency), style = monoStyle(26, FontWeight.Bold), color = Primary)
-        }
-
-        // The selected PERIOD's change — moves with the range (Yahoo's chartPreviousClose
-        // is the close before the requested window). Hidden when either bound is missing.
-        series?.periodChange?.let { change ->
+    SectionCard {
+        // Label, quote and period change share ONE line instead of stacking three.
+        // Above the fold this card competes with the chart for height, and a 10sp
+        // label on a line of its own was buying nothing.
+        //
+        // A FlowRow, not a Row: the widest real case is a Korean quote in KRW
+        // ("229000.00 KRW" plus "+58500.00 KRW (+34.19%)"), which does not fit a phone
+        // line — in a Row the percentage was simply cut off. Here that one case wraps
+        // to the layout it had before and loses nothing, while every other currency
+        // gets the line back.
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            itemVerticalAlignment = Alignment.Bottom,
+        ) {
             Text(
-                text = formatSignedQuote(change, series.currency) +
-                    "  (" + formatSignedPercent(series.periodChangePercent) + ")",
-                style = monoStyle(14),
-                color = if (change >= 0) PositiveGreen else NegativeRed,
+                text = stringResource(Res.string.detail_price).uppercase(),
+                style = microLabelStyle(),
+                color = OnSurfaceVariant,
+                modifier = Modifier.padding(bottom = 3.dp),
             )
+            series?.last?.let { last ->
+                Text(
+                    text = formatQuote(last, series.currency),
+                    style = monoStyle(22, FontWeight.Bold),
+                    color = Primary,
+                    maxLines = 1,
+                )
+            }
+
+            // The selected PERIOD's change — moves with the range (Yahoo's
+            // chartPreviousClose is the close before the requested window). Hidden when
+            // either bound is missing.
+            series?.periodChange?.let { change ->
+                Text(
+                    text = formatSignedQuote(change, series.currency) +
+                        "  (" + formatSignedPercent(series.periodChangePercent) + ")",
+                    style = monoStyle(12),
+                    color = if (change >= 0) PositiveGreen else NegativeRed,
+                    maxLines = 1,
+                    modifier = Modifier.padding(bottom = 3.dp),
+                )
+            }
         }
 
         ChartRangeSelector(selected = selectedRange, onRangeSelected = onRangeSelected)
 
         val points = series?.points.orEmpty()
         when {
-            points.isNotEmpty() -> PriceChart(
+            points.isNotEmpty() -> PlatformPriceChart(
                 points = points,
-                lineColor = trendColor(series),
+                positive = isTrendPositive(series),
             )
             // Soft loading: a freshly-picked, not-yet-cached range is fetching — keep the
             // chart's footprint and show a spinner rather than the empty-state text.
@@ -321,11 +351,17 @@ private fun ChartRangeSelector(
     }
 }
 
-/** Green when the last close holds at/above the previous, red when it slipped. */
-private fun trendColor(series: PriceSeries?): Color {
+/**
+ * Whether the last close holds at/above the previous one.
+ *
+ * A fact, not a colour: the chart is drawn by a different toolkit on each platform,
+ * so each applies its own palette to this. Unknown counts as positive — the same
+ * benefit of the doubt the flat case gets.
+ */
+private fun isTrendPositive(series: PriceSeries?): Boolean {
     val last = series?.last
     val previous = series?.previousClose
-    return if (last != null && previous != null && last < previous) NegativeRed else PositiveGreen
+    return !(last != null && previous != null && last < previous)
 }
 
 /**
@@ -560,6 +596,18 @@ private fun QualityGateCard(gate: QualityGate?) {
  */
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
+    SectionCard {
+        Text(text = title.uppercase(), style = microLabelStyle(), color = OnSurfaceVariant)
+        content()
+    }
+}
+
+/**
+ * The card without the standard title line, for the one section that puts its label
+ * on the same row as its data (the price header) rather than above it.
+ */
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(CardRadius),
@@ -571,7 +619,6 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(text = title.uppercase(), style = microLabelStyle(), color = OnSurfaceVariant)
             content()
         }
     }

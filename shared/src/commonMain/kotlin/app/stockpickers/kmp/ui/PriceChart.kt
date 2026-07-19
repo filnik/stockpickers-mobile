@@ -28,7 +28,8 @@ import com.patrykandpatrick.vico.multiplatform.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.multiplatform.cartesian.rememberVicoScrollState
 import com.patrykandpatrick.vico.multiplatform.common.Fill
 
-private val CHART_HEIGHT = 200.dp
+/** Shared by both renderers, so the card keeps the same footprint on either platform. */
+internal val ChartHeight = 200.dp
 
 private const val SECONDS_PER_DAY = 86_400L
 
@@ -151,7 +152,7 @@ internal fun PriceChart(
     CartesianChartHost(
         chart = chart,
         modelProducer = modelProducer,
-        modifier = modifier.fillMaxWidth().height(CHART_HEIGHT),
+        modifier = modifier.fillMaxWidth().height(ChartHeight),
         scrollState = rememberVicoScrollState(scrollEnabled = false),
         animationSpec = null,
         animateIn = false,

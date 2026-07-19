@@ -2,34 +2,25 @@ import SwiftUI
 import UIKit
 import Shared
 
-/// Hosts the Compose Multiplatform leaders board. On iOS only the LIST is Compose;
-/// tapping a row calls back into Swift to push a NATIVE SwiftUI detail (the hybrid).
-struct LeadersView: UIViewControllerRepresentable {
-    let onTickerSelected: (String) -> Void
-
+/// Hosts the shared Compose app — every screen, and its Nav3 back stack.
+///
+/// There is no SwiftUI `NavigationStack` here: navigation lives in Kotlin, so the two
+/// platforms cannot drift out of step. The only native thing on the detail screen is
+/// the chart, and it is injected the other way round — see `PriceChartRenderer`.
+struct AppHostView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        MainViewControllerKt.MainViewController(onTickerSelected: onTickerSelected)
+        MainViewControllerKt.MainViewController()
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }
 
 struct ContentView: View {
-    /// The native navigation stack. The Compose list appends a ticker here; the
-    /// `navigationDestination` renders the native SwiftUI detail for it.
-    @State private var path: [String] = []
-
     var body: some View {
-        NavigationStack(path: $path) {
-            LeadersView(onTickerSelected: { ticker in path.append(ticker) })
-                // Compose owns its insets — its Scaffold already pads for the status
-                // bar and IME. Letting SwiftUI ALSO inset the hosted controller pads
-                // the top twice, which showed as a band of dead space above the title.
-                .ignoresSafeArea()
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(for: String.self) { ticker in
-                    TickerDetailView(ticker: ticker)
-                }
-        }
+        AppHostView()
+            // Compose owns its insets — its Scaffold already pads for the status bar
+            // and IME. Letting SwiftUI ALSO inset the hosted controller pads the top
+            // twice, which showed as a band of dead space above the title.
+            .ignoresSafeArea()
     }
 }

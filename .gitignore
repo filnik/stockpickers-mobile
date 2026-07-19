@@ -1,8 +1,6 @@
 # Gradle
 .gradle/
 build/
-!gradle/wrapper/gradle-wrapper.jar
-!gradle/wrapper/gradle-wrapper.properties
 
 # Local configuration — contains sdk.dir AND the Supabase anon key. NEVER commit.
 local.properties
@@ -31,6 +29,7 @@ GoogleService-Info.plist
 captures/
 .cxx/
 output.json
+*.hprof
 
 # IntelliJ / Android Studio
 .idea/
@@ -38,6 +37,15 @@ output.json
 *.ipr
 *.iws
 out/
+
+# Other editors
+.fleet/
+.vscode/
+
+# Claude Code: settings.json is tracked on purpose (the shared git deny-list);
+# the .local.* overrides are personal approvals, not project configuration.
+.claude/settings.local.json
+.claude/*.local.json
 
 # Kotlin / Native
 .kotlin/
@@ -48,7 +56,6 @@ xcuserdata/
 *.xcuserstate
 DerivedData/
 Pods/
-*.xcworkspace/xcshareddata/
 
 # macOS
 .DS_Store

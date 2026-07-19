@@ -214,7 +214,7 @@ class ScannerDaoTest {
         assertEquals(2, c.total) // US_NULL dropped by the window gate, in counts too
         assertEquals(1, c.usa)
         assertEquals(1, c.ita)
-        assertTrue(0 == c.asia)
+        assertEquals(0, c.asia)
     }
 
     // ---- ticker profiles -------------------------------------------------

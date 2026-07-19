@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Stockpickers KMP is a Kotlin Multiplatform app (Android + iOS). It reads the `scanner_cache` table published by an upstream Python pipeline (via Supabase/PostgREST) and renders a **momentum leaders** board plus a **ticker detail** read-out.
 
-The UI is **hybrid**: the leaders board is Compose Multiplatform shared across both platforms; the detail screen is Compose on Android but **native SwiftUI on iOS**, both driven by the *same* shared `TickerDetailViewModel`. This is deliberate — it mirrors the "70% CMP + native where it earns it" model and exercises the Kotlin↔Swift interop. See [Hybrid UI & iOS interop](#hybrid-ui--ios-interop).
+Every screen is **Compose Multiplatform**, on both platforms, behind one Nav3 back stack. iOS keeps exactly **one native seam**: the price chart is Swift Charts, injected into the shared Compose screen. See [The native seam](#the-native-seam).
 
 The client is **offline-first and read-only**: Room is the single source of truth the UI observes, and the network only ever writes *into* Room. It computes no investment logic of its own — see [Ownership of Business Logic](#ownership-of-business-logic).
 
@@ -164,18 +164,27 @@ Hard-won on THIS project. Most cost a build failure or a runtime crash — read 
 - **Do NOT add a `BackHandler` around `NavDisplay`.** It already wires the platform back signal to `onBack` via `navigationevent-compose`, on Android *and* iOS. Adding one pops twice. (Wishew's Nav3Host does add one — that is an Android-only, Nav2-era habit; don't port it.)
 - The JetBrains port is **alpha** (`1.2.0-alpha02`) while AndroidX is 1.1.4 stable. Pin the exact alpha: breaking changes land between alphas. Stable JetBrains builds (1.1.0/1.1.1) exist but target the older CMP/navigationevent line.
 
-### Hybrid UI & iOS interop
-The iOS detail screen is **native SwiftUI** (`iosApp/iosApp/TickerDetailView.swift`) observing the shared Kotlin `TickerDetailViewModel`. How the pieces fit:
-- **`MainViewController(onTickerSelected:)`** (iosMain) hosts ONLY the Compose leaders list — not the Nav3 back stack. A row tap invokes the Swift callback, which does `path.append(ticker)` on a SwiftUI `NavigationStack` → native detail push. Android keeps the full Nav3 stack in Compose (`StockpickersRoot`). So navigation is *native on iOS, Compose on Android*: the deliberate cost of "whole native screens" is coordinating the two.
-- **SKIE observes the shared ViewModel.** `IosViewModels.kt` exposes `tickerDetailViewModel(ticker)` (resolves the ViewModel from Koin); SKIE turns its `StateFlow<TickerDetailUiState>` into a Swift `AsyncSequence`, so `TickerDetailModel` (SwiftUI) does `for await state in vm.uiState` directly, with `.value` for the first frame. No hand-written Flow bridge. The `for await` Task is cancelled in `.onDisappear`, dropping the last subscriber so the ViewModel's `WhileSubscribed(5s)` tears down the Room flow.
-- **SKIE is why Kotlin is pinned to 2.4.0.** SKIE (a compiler plugin) supports Kotlin up to 2.4.0; a newer Kotlin (e.g. 2.4.10) would disable it until Touchlab ships a matching build. Keeping SKIE on is worth the pin — it's the whole point of the native-Swift interop. `skie { isEnabled = true }`.
-- **Nullable Doubles still cross as `KotlinDouble?`**, not `Double?` — read them in Swift with `.doubleValue` (and `KotlinBoolean?.boolValue`). SKIE fixes Flow/suspend/sealed/enum, but not the primitive-boxing of arbitrary data-class properties; that's a broader Kotlin↔Obj-C limit.
+### The native seam
+`MainViewController()` (iosMain) hosts **`StockpickersRoot` — the whole app**, Nav3 back stack included, exactly as Android does. `ContentView.swift` is a bare `UIViewControllerRepresentable` with no SwiftUI `NavigationStack`. One navigation model, one copy of every screen and every string.
+
+The single exception is the chart, and the dependency for it runs **upwards**:
+- `ui/PlatformPriceChart.kt` (commonMain) declares an `expect` composable. Android's actual is Vico; iOS's actual is `UIKitViewController` hosting a SwiftUI view.
+- The SwiftUI view lives in the **Xcode target**, which depends on the framework — so the framework cannot reference it. iosMain declares the `NativePriceChartRenderer` interface and `NativePriceChart.renderer`; `iOSApp.init` fills it in with `PriceChartRenderer` (`iosApp/iosApp/PriceChartView.swift`).
+- **`renderer` is nullable and the composable falls back to Vico.** An inverted dependency usually leaves a hole that only the app can fill, and forgetting to fill it fails at runtime; here forgetting costs a plainer chart and nothing else.
+- The renderer has **two methods, not one**: `makeController()` then `update(controller:points:positive:)`. Rebuilding the controller on every data change would restart the chart, losing the scrub selection and replaying its entry animation on every range tap. Swift keeps an `ObservableObject` on a `UIHostingController` subclass and mutates it.
+- The composable takes **`positive: Boolean`, not a `Color`** — each platform applies its own palette to the same semantic fact.
+
+**Previously** the whole detail screen was native SwiftUI observing the shared `TickerDetailViewModel` through SKIE (`for await state in vm.uiState`). It demonstrated more interop, but cost two navigation stacks to keep in step and a second copy of every screen and string. Reverted deliberately; the reasoning is worth knowing, and the code is in the history.
+
+- **SKIE is still on, and is why Kotlin is pinned to 2.4.0.** It supports Kotlin up to 2.4.0; a newer Kotlin would silently disable it. It is what makes the exported enums and the `NativePriceChartRenderer` protocol pleasant to implement in Swift. `skie { isEnabled = true }`.
+- **Nullable primitives still cross boxed** — `KotlinDouble?` / `KotlinInt?`, read with `.doubleValue` / `.intValue`. SKIE fixes Flow/suspend/sealed/enum, not the primitive-boxing of arbitrary data-class properties; that's a broader Kotlin↔Obj-C limit.
 - A Swift-exposed factory must not be named `init*` (the Obj-C exporter mangles that function family); `tickerDetailViewModel(...)` and class constructors cross unmangled.
 
-### Price chart & market data (Yahoo, hybrid render)
+### Price chart & market data (Yahoo)
 The detail screen shows a price chart with a TradingView-style range selector (`ChartRange`: 1D/1W/1M/3M/6M/1Y — intraday `5m`/`30m` for 1D/1W, `1d` otherwise) and the selected-period change (abs + %). Same shared data, two native renderers — the chart is the hybrid thesis made literal:
 - **Data**: `YahooChartApi` (commonMain, Ktor) calls Yahoo's unofficial `v8/finance/chart/{symbol}?range=&interval=` **directly** (our tickers ARE Yahoo symbols — no mapping). Normalized to the shared `PriceSeries(currency, last, previousClose, points)` with computed `periodChange`/`periodChangePercent` (vs `chartPreviousClose`, so it's the selected range's move). Cached in Room **per (ticker, range)** (`PriceSeriesEntity` composite PK, points as JSON; TTL ~5min intraday / ~6h daily). `TickerDetailViewModel` holds `selectedRange` + `selectRange()`; observes the series with `flatMapLatest` and fires refresh per range. Both charts auto-scale Y to the data (not from 0), else intraday looks flat.
-- **Render**: Android = **Vico** line+area in `ui/PriceChart.kt` (the CMP `TickerDetailScreen`); iOS = **Swift Charts** in `iosApp/.../TickerDetailView.swift` (`PriceSection`, with `.chartXSelection` scrubbing), reading `state.priceSeries` via SKIE.
+- **Render**: one shared `TickerDetailScreen` on both platforms, with `PlatformPriceChart` as the only fork — Android draws with **Vico** (`ui/PriceChart.kt`), iOS with **Swift Charts** (`iosApp/.../PriceChartView.swift`, `.chartXSelection` scrubbing). See [The native seam](#the-native-seam).
+- **The last x label needs an `offset`, on both charts.** Labels start half a step in (`spacing / 2`), so none lands on the first or last point: an edge label has only half a slot of width and gets ellipsised — the symptom was a final tick reading ".." instead of "Jul". Vico's `addExtremeLabelPadding` alone was NOT enough; it reserves room, but not enough.
 - **Why no proxy Worker**: Yahoo throttles by *per-IP frequency*. A client calling once-per-ticker from its own IP, Room-cached (6h freshness), is low-frequency and fine. A shared Worker would CONCENTRATE all users onto a few egress IPs — worse, not better. The mitigation is caching, not a proxy. **Required**: a browser `User-Agent`, which the endpoint expects (a default library agent gets 429); fallback query1→query2; failures are graceful (keep cache / "chart unavailable", never retry-spam). Don't add tests that hit real Yahoo — use a fixture.
 - **ToS caveat**: the v8 endpoint is unofficial (personal-use). For a store/commercial release, front it with a swappable server-side source; for this portfolio app, direct is fine.
 
