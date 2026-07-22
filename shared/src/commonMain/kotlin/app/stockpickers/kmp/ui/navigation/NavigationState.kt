@@ -38,7 +38,10 @@ fun rememberNavigator(): Navigator {
  * serialization` at runtime — on iOS only, never on Android, and only once the
  * stack is actually saved. Add a key in NavKeys.kt, add it here.
  */
-private val NavSavedStateConfiguration = SavedStateConfiguration {
+// `internal`, not private, so AppNavKeySerializationTest can round-trip keys through
+// THIS configuration rather than a copy of it — a copy would prove nothing about the
+// one the app actually installs.
+internal val NavSavedStateConfiguration = SavedStateConfiguration {
     serializersModule = SerializersModule {
         polymorphic(NavKey::class) {
             subclass(AppNavKey.Leaders::class, AppNavKey.Leaders.serializer())

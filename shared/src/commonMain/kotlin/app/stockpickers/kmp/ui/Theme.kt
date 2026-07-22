@@ -107,14 +107,18 @@ internal val LocalMonoFamily: ProvidableCompositionLocal<FontFamily> =
 private fun typography(plex: FontFamily, mono: FontFamily) = Typography().run {
     copy(
         headlineSmall = headlineSmall.copy(
-            fontFamily = plex, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp,
+            fontFamily = plex,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = (-0.2).sp,
         ),
         titleLarge = titleLarge.copy(fontFamily = plex, fontWeight = FontWeight.SemiBold),
         titleMedium = titleMedium.copy(fontFamily = plex, fontWeight = FontWeight.SemiBold),
         // Column headers and section labels: the design's signature.
         labelSmall = labelSmall.copy(
-            fontFamily = plex, fontWeight = FontWeight.Bold,
-            fontSize = 10.sp, letterSpacing = 0.5.sp,
+            fontFamily = plex,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            letterSpacing = 0.5.sp,
         ),
         labelMedium = labelMedium.copy(fontFamily = plex, fontWeight = FontWeight.Bold),
         // Figures.

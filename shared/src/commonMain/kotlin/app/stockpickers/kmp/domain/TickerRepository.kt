@@ -2,10 +2,29 @@ package app.stockpickers.kmp.domain
 
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Why a refresh failed.
+ *
+ * The distinction is not cosmetic: only [OFFLINE] is about the user's own
+ * connection. Reporting an upstream fault as "offline" sends them to check a
+ * network that is working, and hides the one thing they could act on — waiting,
+ * or reporting it.
+ */
+enum class RefreshFailure {
+    /** The server was never reached: no network, DNS failure, or a timeout. */
+    OFFLINE,
+
+    /** Reached, and it refused — a 4xx/5xx from PostgREST. */
+    SERVER,
+
+    /** It answered and we could not use the answer; a schema change, most likely. */
+    UNKNOWN,
+}
+
 /** Result of a refresh attempt — lets the UI distinguish "offline" from "broken". */
 sealed interface RefreshResult {
     data object Success : RefreshResult
-    data class Failed(val message: String) : RefreshResult
+    data class Failed(val reason: RefreshFailure, val message: String) : RefreshResult
 }
 
 interface TickerRepository {
@@ -18,11 +37,7 @@ interface TickerRepository {
      * SQL, over the whole cached universe, with the chip filtered BEFORE the
      * limit — so this returns the top [limit] OF THAT BUCKET.
      */
-    fun observeMomentumLeaders(
-        sort: LeaderSort,
-        geo: GeoFilter = GeoFilter.ALL,
-        limit: Int = 10,
-    ): Flow<List<Ticker>>
+    fun observeMomentumLeaders(sort: LeaderSort, geo: GeoFilter = GeoFilter.ALL, limit: Int = 10): Flow<List<Ticker>>
 
     /** How many rows qualify per country chip under [sort]. Not limited. */
     fun observeGeoCounts(sort: LeaderSort): Flow<GeoCounts>

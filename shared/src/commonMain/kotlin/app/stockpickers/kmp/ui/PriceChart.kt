@@ -17,16 +17,16 @@ import com.patrykandpatrick.vico.multiplatform.cartesian.data.CartesianChartMode
 import com.patrykandpatrick.vico.multiplatform.cartesian.data.CartesianLayerRangeProvider
 import com.patrykandpatrick.vico.multiplatform.cartesian.data.CartesianValueFormatter
 import com.patrykandpatrick.vico.multiplatform.cartesian.data.lineSeries
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.time.ExperimentalTime
-import kotlin.time.Instant
 import com.patrykandpatrick.vico.multiplatform.cartesian.layer.LineCartesianLayer
 import com.patrykandpatrick.vico.multiplatform.cartesian.layer.rememberLine
 import com.patrykandpatrick.vico.multiplatform.cartesian.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.multiplatform.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.multiplatform.cartesian.rememberVicoScrollState
 import com.patrykandpatrick.vico.multiplatform.common.Fill
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 /** Shared by both renderers, so the card keeps the same footprint on either platform. */
 internal val ChartHeight = 200.dp
@@ -55,11 +55,7 @@ private fun String.abbreviated(): String = take(3).lowercase().replaceFirstChar 
  */
 @OptIn(ExperimentalTime::class)
 @Composable
-internal fun PriceChart(
-    points: List<PricePoint>,
-    lineColor: Color,
-    modifier: Modifier = Modifier,
-) {
+internal fun PriceChart(points: List<PricePoint>, lineColor: Color, modifier: Modifier = Modifier) {
     // X labels come from each point's real timestamp (x is the point index).
     val xFormatter = remember(points) {
         val tz = TimeZone.currentSystemDefault()
@@ -78,8 +74,12 @@ internal fun PriceChart(
             when {
                 spanDays < 2 -> // one session: 15:30
                     "${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
-                spanDays < 8 -> dt.dayOfWeek.name.abbreviated() // a few sessions: Mon
+
+                spanDays < 8 -> dt.dayOfWeek.name.abbreviated()
+
+                // a few sessions: Mon
                 spanDays <= DAY_LABEL_MAX_SPAN_DAYS -> "${dt.day} ${dt.month.name.abbreviated()}"
+
                 else -> dt.month.name.abbreviated() // Jun
             }
         }

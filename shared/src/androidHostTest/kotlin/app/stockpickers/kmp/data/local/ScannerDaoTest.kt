@@ -3,15 +3,17 @@ package app.stockpickers.kmp.data.local
 import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import app.stockpickers.kmp.modelcreators.TickerEntityModelCreator
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldNotContain
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 /**
  * The single most important test in the suite: it runs the REAL DAO SQL against a
@@ -46,11 +48,11 @@ class ScannerDaoTest {
 
     private fun seed(rows: List<TickerEntity>) = runBlocking { dao.upsertAll(rows) }
 
-    private fun leaders(sort: String, geo: String = "all", limit: Int = 50): List<String> =
-        runBlocking { dao.observeMomentumLeaders(sort, geo, limit).first().map { it.ticker } }
+    private fun leaders(sort: String, geo: String = "all", limit: Int = 50): List<String> = runBlocking {
+        dao.observeMomentumLeaders(sort, geo, limit).first().map { it.ticker }
+    }
 
-    private fun counts(sort: String): GeoCountsRow =
-        runBlocking { dao.observeGeoCounts(sort).first() }
+    private fun counts(sort: String): GeoCountsRow = runBlocking { dao.observeGeoCounts(sort).first() }
 
     // ---- ranking ---------------------------------------------------------
 
@@ -65,7 +67,7 @@ class ScannerDaoTest {
                 base.copy(ticker = "MID", clenow = 2.0, mom1m = null, mom2m = null, mom3m = null),
             ),
         )
-        assertEquals(listOf("HI", "MID", "LO"), leaders("aggregate"))
+        leaders("aggregate") shouldContainExactly listOf("HI", "MID", "LO")
     }
 
     @Test
@@ -77,7 +79,7 @@ class ScannerDaoTest {
                 base.copy(ticker = "C", mom1m = null), // window sort → excluded
             ),
         )
-        assertEquals(listOf("B", "A"), leaders("1m"))
+        leaders("1m") shouldContainExactly listOf("B", "A")
     }
 
     @Test
@@ -89,14 +91,14 @@ class ScannerDaoTest {
                 base.copy(ticker = "C", mom3m = 0.50),
             ),
         )
-        assertEquals(listOf("B", "C", "A"), leaders("3m"))
+        leaders("3m") shouldContainExactly listOf("B", "C", "A")
     }
 
     @Test
     fun WHEN_limit_is_given_THEN_only_the_top_N_are_returned() {
         // list(5): clenow 5,4,3,2,1 for T0..T4 → aggregate order T0..T4.
         seed(TickerEntityModelCreator.list(5))
-        assertEquals(listOf("T0", "T1"), leaders("aggregate", limit = 2))
+        leaders("aggregate", limit = 2) shouldContainExactly listOf("T0", "T1")
     }
 
     // ---- quality gate (fail-safe) ---------------------------------------
@@ -110,7 +112,7 @@ class ScannerDaoTest {
                 base.copy(ticker = "REJECTED", qualityPasses = false),
             ),
         )
-        assertEquals(listOf("PASS"), leaders("aggregate"))
+        leaders("aggregate") shouldContainExactly listOf("PASS")
     }
 
     @Test
@@ -122,7 +124,7 @@ class ScannerDaoTest {
                 base.copy(ticker = "DROP_TRUE", wyckoffMarkdown = true),
             ),
         )
-        assertEquals(setOf("KEEP_FALSE", "KEEP_NULL"), leaders("aggregate").toSet())
+        leaders("aggregate").toSet() shouldBe setOf("KEEP_FALSE", "KEEP_NULL")
     }
 
     @Test
@@ -134,7 +136,7 @@ class ScannerDaoTest {
                 base.copy(ticker = "DROP_ADR", duplicateOf = "AAPL"),
             ),
         )
-        assertEquals(setOf("KEEP_NULL", "KEEP_EMPTY"), leaders("aggregate").toSet())
+        leaders("aggregate").toSet() shouldBe setOf("KEEP_NULL", "KEEP_EMPTY")
     }
 
     @Test
@@ -147,7 +149,7 @@ class ScannerDaoTest {
                 base.copy(ticker = "NULLCL", clenow = null),
             ),
         )
-        assertEquals(listOf("POS"), leaders("aggregate"))
+        leaders("aggregate") shouldContainExactly listOf("POS")
     }
 
     // ---- geo buckets -----------------------------------------------------
@@ -160,25 +162,25 @@ class ScannerDaoTest {
             base.copy(ticker = "KR1", country = "South Korea"),
             base.copy(ticker = "TW1", country = "Taiwan"),
             base.copy(ticker = "FR1", country = "France"), // not in any bucket
-            base.copy(ticker = "NULLC", country = null),    // not in any bucket
+            base.copy(ticker = "NULLC", country = null), // not in any bucket
         ),
     )
 
     @Test
     fun WHEN_geo_is_a_bucket_THEN_only_that_bucket_countries_are_returned() {
         seedAllCountries()
-        assertEquals(setOf("US1"), leaders("aggregate", "us").toSet())
-        assertEquals(setOf("IT1"), leaders("aggregate", "it").toSet())
-        assertEquals(setOf("JP1", "KR1", "TW1"), leaders("aggregate", "asia").toSet())
+        leaders("aggregate", "us").toSet() shouldBe setOf("US1")
+        leaders("aggregate", "it").toSet() shouldBe setOf("IT1")
+        leaders("aggregate", "asia").toSet() shouldBe setOf("JP1", "KR1", "TW1")
     }
 
     @Test
     fun WHEN_geo_is_all_THEN_the_whole_bucket_universe_is_returned_but_non_bucket_countries_are_excluded() {
         seedAllCountries()
         val all = leaders("aggregate", "all").toSet()
-        assertEquals(setOf("US1", "IT1", "JP1", "KR1", "TW1"), all)
-        assertFalse("FR1" in all)
-        assertFalse("NULLC" in all)
+        all shouldBe setOf("US1", "IT1", "JP1", "KR1", "TW1")
+        all shouldNotContain "FR1"
+        all shouldNotContain "NULLC"
     }
 
     // ---- geo counts ------------------------------------------------------
@@ -187,18 +189,18 @@ class ScannerDaoTest {
     fun WHEN_counting_THEN_the_pool_matches_per_bucket_and_sums_to_total() {
         seedAllCountries()
         val c = counts("aggregate")
-        assertEquals(5, c.total)
-        assertEquals(1, c.usa)
-        assertEquals(1, c.ita)
-        assertEquals(3, c.asia)
-        assertEquals(c.total, c.usa + c.ita + c.asia) // partition invariant (see GeoCounts)
+        c.total shouldBe 5
+        c.usa shouldBe 1
+        c.ita shouldBe 1
+        c.asia shouldBe 3
+        (c.usa + c.ita + c.asia) shouldBe c.total // partition invariant (see GeoCounts)
     }
 
     @Test
     fun WHEN_the_cache_is_empty_THEN_geo_counts_are_zero_not_null() {
         // COUNT(CASE ...) over zero rows must yield 0, not NULL (which would blow up
         // the non-null Ints of GeoCountsRow). This is why the DAO uses COUNT, not SUM.
-        assertEquals(GeoCountsRow(total = 0, usa = 0, ita = 0, asia = 0), counts("aggregate"))
+        counts("aggregate") shouldBe GeoCountsRow(total = 0, usa = 0, ita = 0, asia = 0)
     }
 
     @Test
@@ -211,46 +213,45 @@ class ScannerDaoTest {
             ),
         )
         val c = counts("1m")
-        assertEquals(2, c.total) // US_NULL dropped by the window gate, in counts too
-        assertEquals(1, c.usa)
-        assertEquals(1, c.ita)
-        assertEquals(0, c.asia)
+        c.total shouldBe 2 // US_NULL dropped by the window gate, in counts too
+        c.usa shouldBe 1
+        c.ita shouldBe 1
+        c.asia shouldBe 0
     }
 
     // ---- ticker profiles -------------------------------------------------
 
-    private fun profile(ticker: String, description: String?, fetchedAt: Long = 1_000L) =
-        TickerProfileEntity(
-            ticker = ticker,
-            timelessDescription = description,
-            timelessUpdatedAt = null,
-            timelessTtlDays = null,
-            currentDescription = null,
-            currentUpdatedAt = null,
-            currentTtlDays = null,
-            prosJson = "[]",
-            consJson = "[]",
-            earningsDate = null,
-            earningsConsensus = null,
-            earningsDaysAway = null,
-            fetchedAt = fetchedAt,
-        )
+    private fun profile(ticker: String, description: String?, fetchedAt: Long = 1_000L) = TickerProfileEntity(
+        ticker = ticker,
+        timelessDescription = description,
+        timelessUpdatedAt = null,
+        timelessTtlDays = null,
+        currentDescription = null,
+        currentUpdatedAt = null,
+        currentTtlDays = null,
+        prosJson = "[]",
+        consJson = "[]",
+        earningsDate = null,
+        earningsConsensus = null,
+        earningsDaysAway = null,
+        fetchedAt = fetchedAt,
+    )
 
     @Test
-    fun WHEN_a_profile_is_upserted_THEN_it_round_trips_through_real_sqlite() = runBlocking {
+    fun WHEN_a_profile_is_upserted_THEN_it_round_trips_through_real_sqlite() = runBlocking<Unit> {
         dao.upsertProfile(profile("DAVE", "Makes chips."))
 
         val stored = dao.observeProfile("DAVE").first()
-        assertEquals("Makes chips.", stored?.timelessDescription)
-        assertEquals(1_000L, dao.getProfileFetchedAt("DAVE"))
+        stored!!.timelessDescription shouldBe "Makes chips."
+        dao.getProfileFetchedAt("DAVE") shouldBe 1_000L
     }
 
     @Test
-    fun WHEN_a_ticker_has_no_profile_row_THEN_both_reads_answer_null() = runBlocking {
-        assertEquals(null, dao.observeProfile("NOPE").first())
+    fun WHEN_a_ticker_has_no_profile_row_THEN_both_reads_answer_null() = runBlocking<Unit> {
+        dao.observeProfile("NOPE").first().shouldBeNull()
         // Null here is what tells the repository it has never asked — as opposed to a
         // tombstone, which carries a fetchedAt and suppresses the refetch.
-        assertEquals(null, dao.getProfileFetchedAt("NOPE"))
+        dao.getProfileFetchedAt("NOPE").shouldBeNull()
     }
 
     // NOTE: there is deliberately NO test that upserts the same primary key twice —
@@ -267,12 +268,12 @@ class ScannerDaoTest {
     // no android.jar involved. Do not "fix" the DAO because of a failure here.
 
     @Test
-    fun WHEN_a_tombstone_is_stored_THEN_it_is_a_real_row_with_no_content() = runBlocking {
+    fun WHEN_a_tombstone_is_stored_THEN_it_is_a_real_row_with_no_content() = runBlocking<Unit> {
         dao.upsertProfile(profile("EMPTY", description = null, fetchedAt = 5_000L))
 
         val stored = dao.observeProfile("EMPTY").first()
-        assertTrue(stored != null) // the row EXISTS...
-        assertEquals(null, stored.timelessDescription) // ...and says upstream had nothing
-        assertEquals(5_000L, dao.getProfileFetchedAt("EMPTY")) // which is what gates the refetch
+        stored.shouldNotBeNull() // the row EXISTS...
+        stored.timelessDescription.shouldBeNull() // ...and says upstream had nothing
+        dao.getProfileFetchedAt("EMPTY") shouldBe 5_000L // which is what gates the refetch
     }
 }

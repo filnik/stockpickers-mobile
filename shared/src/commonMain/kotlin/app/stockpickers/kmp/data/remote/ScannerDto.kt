@@ -23,6 +23,17 @@ data class TickerDto(
     @SerialName("mom_2m") val mom2m: Double? = null,
     @SerialName("mom_3m") val mom3m: Double? = null,
     @SerialName("mom_12m") val mom12m: Double? = null,
+    /**
+     * Clenow's annualised regression return, used as the [mom12m] fallback exactly
+     * as upstream's own writer and web client do.
+     *
+     * It is a DECIMAL FRACTION, like every other `mom_*`. Note that
+     * `tech-docs/reference/scanner_cache.md` upstream says it is in percent units —
+     * that doc is wrong, and following it divides every fallback value by 100. The
+     * authority is `services/supabase_writer.py`, whose comment records the incident
+     * (2026-06-10) where a `/100` made a +45% trend render as "+0,4%".
+     */
+    @SerialName("ann_mom") val annMom: Double? = null,
     @SerialName("forward_pe") val forwardPe: Double? = null,
     val peg: Double? = null,
     val roic: Double? = null,

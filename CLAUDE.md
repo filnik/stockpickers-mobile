@@ -15,6 +15,29 @@ The client is **offline-first and read-only**: Room is the single source of trut
 - `:composeApp` — the Android application shell (`MainActivity`, `StockpickersApp`). Thin by design.
 - `iosApp/` — the Xcode app shell. `project.yml` is the source of truth (xcodegen); the `.xcodeproj` is generated and git-ignored.
 
+## Documentation map
+
+**This file holds what stops a wrong action. `docs/` hold what guides a right one** — read the relevant one when you reach that moment, not before.
+
+| Read this | When |
+|---|---|
+| [docs/TESTING.md](docs/TESTING.md) | Writing or changing any test |
+| [docs/NAVIGATION.md](docs/NAVIGATION.md) | Adding a destination or touching the back stack |
+| [docs/IOS_INTEROP.md](docs/IOS_INTEROP.md) | Anything crossing Kotlin↔Swift, or the price chart |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Adding a layer, a use case, or a ViewModel |
+| [docs/UPSTREAM_CONTRACT.md](docs/UPSTREAM_CONTRACT.md) | **Before touching the leaders SQL, any threshold, or any unit** |
+| [docs/SUPABASE.md](docs/SUPABASE.md) | Changing what we read from `scanner_cache` / `descriptions_cache` |
+| [docs/YAHOO.md](docs/YAHOO.md) | Changing the chart fetch, ranges, or caching |
+| [docs/KOIN.md](docs/KOIN.md) | Adding a binding or a ViewModel |
+| [docs/NETWORKING.md](docs/NETWORKING.md) | Adding an API client, auth, or retry |
+| [docs/I18N.md](docs/I18N.md) | Adding, changing or deleting a string |
+| [docs/ADDING_A_SCREEN.md](docs/ADDING_A_SCREEN.md) | Adding a screen — the whole checklist |
+| [docs/CODE_QUALITY.md](docs/CODE_QUALITY.md) | Formatting, detekt, git hooks |
+| [docs/MICROFEATURES.md](docs/MICROFEATURES.md) | Reference only — a pattern this codebase does not use yet |
+| [docs/STITCH_API.md](docs/STITCH_API.md) | Generating UI mockups |
+
+**Propose, never autonomously create,** new documentation files. If a change invalidates something here, fix it in the same commit.
+
 ## Build & Development Commands
 
 ```bash
@@ -38,13 +61,29 @@ cd iosApp && xcodebuild -project iosApp.xcodeproj -scheme iosApp \
 xcrun simctl install booted <path>/iosApp.app
 xcrun simctl launch booted app.stockpickers.kmp.ios
 
-# Tests
-./gradlew :shared:allTests        # all targets
-./gradlew :shared:iosSimulatorArm64Test
+# Tests. `allTests` covers BOTH :shared targets (testAndroidHostTest +
+# iosSimulatorArm64Test); the snapshots live in :composeApp and are separate.
+./gradlew :shared:allTests
+./gradlew :composeApp:verifyRoborazziDebug
+
+# Formatting + static analysis
+./gradlew spotlessApply    # fix
+./gradlew spotlessCheck detekt
 
 # Clean
 ./gradlew clean
 ```
+
+**Definition of done** — a change is "verified" when all four pass:
+
+```bash
+./gradlew spotlessCheck detekt
+./gradlew :composeApp:assembleDebug
+./gradlew :shared:linkDebugFrameworkIosSimulatorArm64
+./gradlew :shared:allTests
+```
+
+There is **no CI**. The git hooks (`git config core.hooksPath .githooks`, see [docs/CODE_QUALITY.md](docs/CODE_QUALITY.md)) and the rules in this file are the only gate — nothing downstream will catch what they miss.
 
 **Always verify BOTH targets.** The Android task is fast and proves almost nothing about iOS: expect/actual gaps, Kotlin/Native-only API restrictions and Obj-C export problems only appear at `link*IosSimulatorArm64`.
 
@@ -64,19 +103,20 @@ di                   → Koin modules, the only place that knows every layer
 ```
 
 - **`domain` must stay free of framework types.** No Room, no Ktor, no Compose, no `androidx.*` in a domain model or use case.
-- **`navigation` (NavKeys) sits outside `ui`** so `presentation` can depend on it — ViewModels take their NavKey as a constructor parameter. Putting keys in `ui.navigation` would invert the layering. (Wishew solves the same problem by placing NavKeys in `core/common`.)
+- **`navigation` (NavKeys) sits outside `ui`** so `presentation` can depend on it — ViewModels take their NavKey as a constructor parameter. Putting keys in `ui.navigation` would invert the layering.
 
 ### Ownership of Business Logic
 
 **The scanner rules are owned by the upstream pipeline and mirrored by its web client. This app READS them; it does not invent them.**
 
-- Quality gate, Wyckoff phase, ADR dedup and the momentum windows are all computed upstream.
-- The qualifying rules live in `ScannerDao.observeMomentumLeaders`'s SQL, ported from the upstream leaders query. If upstream changes, port the change across — do not let them drift, and do not "improve" a threshold locally.
-- **The board's tabs and chips mirror the upstream filter definitions**: tabs `Forza · 1M · 2M · 3M` (`AcceleratingSort` — `Forza` is the aggregate ranking, `clenow` DESC, the default) and chips `Tutti · 🇺🇸 USA · 🇮🇹 ITA · 🇯🇵 ASIA` (`GeoBucket`, ASIA = Japan+South Korea+Taiwan). The gate is identical in every tab×chip combination; only the ranking key and the country predicate change.
-- **The country list in that SQL is a FOURTH copy** of the same buckets defined upstream (which already asks to "keep the three in sync"). Accepted debt, documented at the DAO: an offline-first client cannot call a source of truth it may not be able to reach. Add a country upstream → add it here too. A fifth copy means it is time to publish the buckets as data.
-- **No merge pass, unlike the web client.** Upstream stitches three separate leader queries together only because a server-side top-N is dominated by US/Taiwan and would leave the ITA/ASIA chips empty. Room holds the whole universe (~1804 rows), so the chip is a plain `WHERE` applied *before* the `LIMIT` — one query, same semantics. Do not port the merge.
-- Unit conventions are also upstream's: `mom_*` and `roic` are **decimal fractions** (0.55 == +55%), `r2` and `peg` are plain ratios. Never pre-multiply in domain/data — formatting is the UI's job (`ui/Formatting.kt`).
-- **Fail-safe reading**: a missing quality verdict means UNKNOWN and must be EXCLUDED from the board, never assumed to pass. `qualityPasses = 1` in SQL gives this for free (`NULL = 1` is NULL). Using `!= 0` would fail *open* and leak un-evaluated rows.
+**Read [docs/UPSTREAM_CONTRACT.md](docs/UPSTREAM_CONTRACT.md) before touching the leaders SQL, any threshold, or any unit.** The non-negotiables:
+
+- **Do not "improve" a threshold locally.** Quality gate, Wyckoff phase, ADR dedup and the momentum windows are computed upstream; `ScannerDao.observeMomentumLeaders`'s SQL is a *port*. If upstream changes, port the change — never let them drift.
+- **Read `passes_filters` as an opaque boolean.** Recomputing it locally reintroduces the exact bug the rule exists to prevent.
+- **Fail-safe reading**: a missing quality verdict means UNKNOWN and must be EXCLUDED. `qualityPasses = 1` gives this for free (`NULL = 1` is NULL); `!= 0` would fail *open* and leak un-evaluated rows.
+- **Units are upstream's.** `mom_*`, `ann_mom` and `roic` are **decimal fractions** (0.55 == +55%); `r2` and `peg` are plain ratios; **`clenow` is already ×100** — scaling it again gives 440 000. Never pre-multiply in domain/data: formatting is the UI's job (`ui/Formatting.kt`).
+- **The country list in that SQL is a FOURTH copy** of the upstream buckets. Accepted debt: an offline-first client cannot call a source of truth it may not reach. Add a country upstream → add it here too. A fifth copy means publishing the buckets as data.
+- **Our leaders legitimately differ from the published website**, which truncates at 1000 rows where we page. Do not align downward.
 
 ### Use Case Rules
 
@@ -96,45 +136,28 @@ di                   → Koin modules, the only place that knows every layer
 
 ### Navigation 3
 
-Nav3 with the "you own the back stack" model. Files:
+Full guide: [docs/NAVIGATION.md](docs/NAVIGATION.md). Adding a screen:
+[docs/ADDING_A_SCREEN.md](docs/ADDING_A_SCREEN.md).
 
-```
-navigation/NavKeys.kt              # AppNavKey sealed interface — all destinations
-ui/navigation/Navigator.kt         # owns the back stack; goTo / goBack
-ui/navigation/NavigationState.kt   # rememberNavigator() + SavedStateConfiguration
-ui/navigation/EntryProvider.kt     # NavKey → composable
-ui/navigation/Nav3Host.kt          # NavDisplay + decorators
-```
-
-- **Only `Navigator` mutates the back stack.** Screens get `goTo`/`goBack` and never touch the list.
-- ViewModels receive the **whole NavKey** via `koinViewModel { parametersOf(key) }`, not loose primitives — adding a parameter then stays a compile-time change.
-- Resolve ViewModels **inside** the `entry<>` block so `rememberViewModelStoreNavEntryDecorator` scopes them per NavEntry.
-- **Adding a destination:** add it to `AppNavKey` → register it in the polymorphic `SerializersModule` in `NavigationState.kt` (**iOS crashes at runtime otherwise**) → add an `entry<>` in `EntryProvider.kt` → navigate with `navigator.goTo(...)`.
-
-See the KMP-specific Nav3 gotchas below — several are not in the AndroidX docs.
+- **Only `Navigator` mutates the back stack.** Screens get `goTo`/`goBack`.
+- **Resolve every ViewModel inside its `entry<>` block**, never via a defaulted `koinViewModel()` parameter — that is what scopes it per NavEntry. Pass the **whole NavKey**.
+- **Add a NavKey → register it in the polymorphic `SerializersModule` in `NavigationState.kt`.** Miss it and iOS crashes at runtime, having passed every Android check and the framework link.
 
 ### Dependency Injection (Koin)
 
-- Classic DSL, **no annotations / no KSP** (`di/Modules.kt`). Don't introduce `@KoinViewModel` here without migrating the whole graph.
-- `single { }` for repositories, API clients, DB, use cases. `viewModel { }` for ViewModels.
-- ViewModels needing a NavKey: `viewModel { params -> XxxViewModel(navKey = params.get(), ...) }`.
-- `expect val platformModule: Module` binds the platform pieces (Ktor engine, `DatabaseBuilderFactory`).
-- Android starts Koin in `StockpickersApp.onCreate`; iOS in `startKoinIos()` (see gotchas).
+Full guide: [docs/KOIN.md](docs/KOIN.md).
 
-### Key Technologies
+- **Koin Annotations**, via the `io.insert-koin.compiler.plugin` **compiler plugin** — not the retired `koin-ksp-compiler`. KSP stays in the build for Room only.
+- **Scope rule: everything is `@Single` except ViewModels (`@KoinViewModel`).** Singles are lazy and these are stateless collaborators.
+- **`compileSafety = true`**: a missing binding is a build error on both targets, not an iOS crash. `strictSafety` is off — it adds no checking, and the pair being true makes `:shared` never up-to-date (~0.6s → ~20s per no-op build). See [docs/KOIN.md](docs/KOIN.md).
 
-| Concern | Choice |
-|---|---|
-| UI | Compose Multiplatform 1.11.1, Material 3 |
-| Language | Kotlin 2.4.0 (pinned for SKIE — see below) |
-| Navigation | Navigation 3 (`org.jetbrains.androidx.navigation3` 1.2.0-alpha02) |
-| DB | Room 3.0 (`androidx.room3`) + `sqlite-bundled` |
-| Network | Ktor 3.5.1 (OkHttp on Android, Darwin on iOS) |
-| DI | Koin 4.2.2, classic DSL |
-| ViewModel | `org.jetbrains.androidx.lifecycle` 2.11.0 |
-| Charts | **Vico 2.5.2** (Android) · **Swift Charts** (iOS) — same shared `PriceSeries`, see below |
-| Market data | Yahoo Finance v8 `chart` (direct, browser UA, Room-cached) — see below |
-| Build | AGP 9.3.0, compileSdk 37 / targetSdk 36 / minSdk 29 |
+### Versions
+
+Read `gradle/libs.versions.toml` — every pin there carries the reason it exists. The three that constrain everything else:
+
+- **Kotlin is pinned to 2.4.0 for SKIE.** A newer Kotlin silently disables it.
+- **compileSdk must be 37**, not 36 — `androidx.lifecycle` 2.11.0's AAR metadata demands it.
+- **Nav3 is pinned to the exact JetBrains alpha** (`1.2.0-alpha02`); breaking changes land between alphas.
 
 ## KMP / iOS Gotchas
 
@@ -152,48 +175,34 @@ Hard-won on THIS project. Most cost a build failure or a runtime crash — read 
 - Starting Koin twice throws `KoinAppAlreadyStartedException` — `startKoinIos()` is idempotent by design.
 
 ### Compose Multiplatform
-- **`CADisableMinimumFrameDurationOnPhone: true` is REQUIRED in `Info.plist`.** Without it `ComposeUIViewController`'s `PlistSanityCheck` throws at startup. It lives in the `info:` block of `iosApp/project.yml`.
-- **CMP 1.11.1 publishes no `iosX64` artifacts** (the last that did was 1.11.0-alpha01). Declaring the Intel-simulator target breaks commonMain dependency resolution. Apple Silicon uses `iosSimulatorArm64`; the target list is intentionally `iosArm64 + iosSimulatorArm64`.
-- Set `binaryOption("bundleId", ...)` on the framework or the linker warns it cannot infer one.
+- **`CADisableMinimumFrameDurationOnPhone: true` is REQUIRED in `Info.plist`.** Without it `ComposeUIViewController`'s `PlistSanityCheck` throws at startup (`iosApp/project.yml`).
+- The target list is intentionally `iosArm64 + iosSimulatorArm64` — CMP 1.11.1 publishes no `iosX64` artifacts, and declaring it breaks commonMain resolution.
 
 ### Navigation 3 on CMP
-- **`androidx.navigation3:navigation3-ui` is Android-only** — it publishes only `-android` and `*stubs` variants, no iOS. The UI layer must come from the JetBrains port, `org.jetbrains.androidx.navigation3:navigation3-ui`. (`androidx.navigation3:navigation3-runtime` *is* multiplatform and arrives transitively — don't declare it separately.)
-- **`rememberNavBackStack(vararg NavKey)` is Android-only.** That overload lives in `RememberNavBackStack.android.kt` and reflects over subclasses at runtime, which Kotlin/Native cannot do. commonMain only sees the overload taking a `SavedStateConfiguration`, so **every NavKey subclass must be registered by hand** in a polymorphic `SerializersModule` (`NavigationState.kt`). Forgetting one compiles fine and throws `SerializationException: Class 'X' is not registered for polymorphic serialization` **on iOS only, at runtime**.
-- **The entry DSL scope is `EntryProviderScope<T>`, not `EntryProviderBuilder<T>`** (renamed; most docs and blog posts still say Builder).
-- The decorator is `rememberSaveableStateHolderNavEntryDecorator()` (in `navigation3.runtime`), paired with `rememberViewModelStoreNavEntryDecorator()` (in `lifecycle.viewmodel.navigation3`).
-- **Do NOT add a `BackHandler` around `NavDisplay`.** It already wires the platform back signal to `onBack` via `navigationevent-compose`, on Android *and* iOS. Adding one pops twice. (Wishew's Nav3Host does add one — that is an Android-only, Nav2-era habit; don't port it.)
-- The JetBrains port is **alpha** (`1.2.0-alpha02`) while AndroidX is 1.1.4 stable. Pin the exact alpha: breaking changes land between alphas. Stable JetBrains builds (1.1.0/1.1.1) exist but target the older CMP/navigationevent line.
+See [docs/NAVIGATION.md](docs/NAVIGATION.md) §5. The two that bite hardest:
+- **`navigation3-ui` must come from the JetBrains port** — the AndroidX one publishes no iOS variants.
+- **Do NOT add a `BackHandler` around `NavDisplay`.** It already wires the platform back signal on both platforms; adding one pops twice.
 
 ### The native seam
-`MainViewController()` (iosMain) hosts **`StockpickersRoot` — the whole app**, Nav3 back stack included, exactly as Android does. `ContentView.swift` is a bare `UIViewControllerRepresentable` with no SwiftUI `NavigationStack`. One navigation model, one copy of every screen and every string.
+See [docs/IOS_INTEROP.md](docs/IOS_INTEROP.md).
+- `MainViewController()` hosts **`StockpickersRoot` — the whole app**, Nav3 stack included, exactly as Android does. One navigation model, one copy of every screen and string.
+- The **only** fork is the price chart: `ui/PlatformPriceChart.kt` is `expect`; Android draws Vico, iOS hands off to Swift Charts through `NativePriceChartRenderer`.
+- **`renderer` is nullable and falls back to Vico** — forgetting to wire it costs a plainer chart, not a crash.
+- **SKIE is why Kotlin is pinned to 2.4.0.** A newer Kotlin silently disables it.
 
-The single exception is the chart, and the dependency for it runs **upwards**:
-- `ui/PlatformPriceChart.kt` (commonMain) declares an `expect` composable. Android's actual is Vico; iOS's actual is `UIKitViewController` hosting a SwiftUI view.
-- The SwiftUI view lives in the **Xcode target**, which depends on the framework — so the framework cannot reference it. iosMain declares the `NativePriceChartRenderer` interface and `NativePriceChart.renderer`; `iOSApp.init` fills it in with `PriceChartRenderer` (`iosApp/iosApp/PriceChartView.swift`).
-- **`renderer` is nullable and the composable falls back to Vico.** An inverted dependency usually leaves a hole that only the app can fill, and forgetting to fill it fails at runtime; here forgetting costs a plainer chart and nothing else.
-- The renderer has **two methods, not one**: `makeController()` then `update(controller:points:positive:)`. Rebuilding the controller on every data change would restart the chart, losing the scrub selection and replaying its entry animation on every range tap. Swift keeps an `ObservableObject` on a `UIHostingController` subclass and mutates it.
-- The composable takes **`positive: Boolean`, not a `Color`** — each platform applies its own palette to the same semantic fact.
-
-**Previously** the whole detail screen was native SwiftUI observing the shared `TickerDetailViewModel` through SKIE (`for await state in vm.uiState`). It demonstrated more interop, but cost two navigation stacks to keep in step and a second copy of every screen and string. Reverted deliberately; the reasoning is worth knowing, and the code is in the history.
-
-- **SKIE is still on, and is why Kotlin is pinned to 2.4.0.** It supports Kotlin up to 2.4.0; a newer Kotlin would silently disable it. It is what makes the exported enums and the `NativePriceChartRenderer` protocol pleasant to implement in Swift. `skie { isEnabled = true }`.
-- **Nullable primitives still cross boxed** — `KotlinDouble?` / `KotlinInt?`, read with `.doubleValue` / `.intValue`. SKIE fixes Flow/suspend/sealed/enum, not the primitive-boxing of arbitrary data-class properties; that's a broader Kotlin↔Obj-C limit.
-- A Swift-exposed factory must not be named `init*` (the Obj-C exporter mangles that function family); `tickerDetailViewModel(...)` and class constructors cross unmangled.
-
-### Price chart & market data (Yahoo)
-The detail screen shows a price chart with a TradingView-style range selector (`ChartRange`: 1D/1W/1M/3M/6M/1Y — intraday `5m`/`30m` for 1D/1W, `1d` otherwise) and the selected-period change (abs + %). Same shared data, two native renderers — the chart is the hybrid thesis made literal:
-- **Data**: `YahooChartApi` (commonMain, Ktor) calls Yahoo's unofficial `v8/finance/chart/{symbol}?range=&interval=` **directly** (our tickers ARE Yahoo symbols — no mapping). Normalized to the shared `PriceSeries(currency, last, previousClose, points)` with computed `periodChange`/`periodChangePercent` (vs `chartPreviousClose`, so it's the selected range's move). Cached in Room **per (ticker, range)** (`PriceSeriesEntity` composite PK, points as JSON; TTL ~5min intraday / ~6h daily). `TickerDetailViewModel` holds `selectedRange` + `selectRange()`; observes the series with `flatMapLatest` and fires refresh per range. Both charts auto-scale Y to the data (not from 0), else intraday looks flat.
-- **Render**: one shared `TickerDetailScreen` on both platforms, with `PlatformPriceChart` as the only fork — Android draws with **Vico** (`ui/PriceChart.kt`), iOS with **Swift Charts** (`iosApp/.../PriceChartView.swift`, `.chartXSelection` scrubbing). See [The native seam](#the-native-seam).
-- **The last x label needs an `offset`, on both charts.** Labels start half a step in (`spacing / 2`), so none lands on the first or last point: an edge label has only half a slot of width and gets ellipsised — the symptom was a final tick reading ".." instead of "Jul". Vico's `addExtremeLabelPadding` alone was NOT enough; it reserves room, but not enough.
-- **Why no proxy Worker**: Yahoo throttles by *per-IP frequency*. A client calling once-per-ticker from its own IP, Room-cached (6h freshness), is low-frequency and fine. A shared Worker would CONCENTRATE all users onto a few egress IPs — worse, not better. The mitigation is caching, not a proxy. **Required**: a browser `User-Agent`, which the endpoint expects (a default library agent gets 429); fallback query1→query2; failures are graceful (keep cache / "chart unavailable", never retry-spam). Don't add tests that hit real Yahoo — use a fixture.
-- **ToS caveat**: the v8 endpoint is unofficial (personal-use). For a store/commercial release, front it with a swappable server-side source; for this portfolio app, direct is fine.
+### Market data (Yahoo)
+See [docs/YAHOO.md](docs/YAHOO.md).
+- A **browser `User-Agent` is required** (a default library agent gets 429); `query1` falls back to `query2`; failures are graceful and never retried in a loop.
+- **Read `adjclose` when present**, falling back to `quote.close` for intraday. The raw series is unadjusted, so a split draws a cliff and the chart stops agreeing with the momentum figures beside it.
+- **Never write a test that hits real Yahoo** — use a fixture.
+- **Both charts auto-scale Y to the data**, not from zero; and both need the last x-label `offset` (an edge label otherwise ellipsises to `".."`).
 
 ### Room 3.0
 - Room 3.0 is a **new package (`androidx.room3`) and a new Gradle extension (`room3 { }`)** — not `androidx.room` / `room { }` as in 2.x. Mixing them silently fails to generate code.
 - The KSP processor must be added **per target** (`kspAndroid`, `kspIosArm64`, `kspIosSimulatorArm64`); a bare `ksp(...)` only wires Android.
 - `@ConstructedBy` + `expect object : RoomDatabaseConstructor` is mandatory for KMP; Room's KSP generates the actuals.
 - The cache is disposable: the builder uses `fallbackToDestructiveMigration(dropAllTables = true)`, so a schema change is a **version bump with no Migration**. Do not hand-write migrations for `tickers`/`sync_metadata`.
-- **`@Upsert` over an existing PK always fails in `androidHostTest`.** Room INSERTs and, on a uniqueness violation, falls back to UPDATE — deciding which by string-matching the exception message for `unique` / 1555 / 2067. That source set runs with `isReturnDefaultValues = true`, which stubs the `android.database.SQLException` constructor, so the message never reaches the object and Room re-throws instead of updating. It is an artefact of the test environment, **not a defect**: on a device the real constructor keeps the message, and on iOS no android.jar is involved. Do not "fix" a DAO because of it, and do not write a re-upsert test there.
+- **Re-upserting an existing PK always fails in `androidHostTest`** — an artefact of the stubbed `android.jar`, NOT a defect. Do not "fix" a DAO because of it; see [docs/TESTING.md](docs/TESTING.md) §6.
 
 ### AGP 9 + KMP
 - KMP modules use **`com.android.kotlin.multiplatform.library`**; the classic `com.android.library` is no longer compatible with the KMP plugin.
@@ -201,17 +210,14 @@ The detail screen shows a price chart with a TradingView-style range selector (`
 - The Android target is configured **inside the `kotlin { androidLibrary { } }` block**, not in a top-level `android { }`.
 - **compileSdk must be 37**, not 36: `androidx.lifecycle` 2.11.0's AAR metadata demands it and `checkDebugAarMetadata` fails otherwise. `targetSdk` stays 36.
 - `-Xexpect-actual-classes` is required — `expect class`/`expect object` are still flagged Beta and warn on every compile.
-- **`:shared`'s `composeResources` are NOT propagated to the consumer APK.** A plain `assembleDebug` ships ZERO composeResources → the app crashes on the first `stringResource`. `composeApp/build.gradle.kts::stageComposeResForApp` copies them into the app's assets in the package-qualified layout (`assets/composeResources/<packageOfResClass>/…`) so the app launches. Same root cause as the host-test staging; remove both when the KMP androidLibrary plugin propagates composeResources to consumers.
+- **`:shared`'s composeResources are NOT propagated** to the consumer APK or to host tests. Two `Copy` tasks in `composeApp/build.gradle.kts` stage them; without them the app crashes on the first `stringResource`. **Don't simplify them away** — see [docs/I18N.md](docs/I18N.md) §5.
 
 ### Supabase / PostgREST
-- **A single response is capped at 1000 rows server-side**, whatever `limit` says (the table holds ~1800). A naive GET silently truncates the universe and corrupts the board. Page with the `Range` header until a short page comes back (`SupabaseScannerApi`).
-- The `data` JSONB payload is flattened by the `select` (`clenow:data->clenow`). Keep `SELECT` in sync with the web client.
-- **Every field except `ticker` is nullable.** The pipeline publishes rows in varying completeness; the client must never crash on a partial row. (As of writing, `price_eur` is null for **every** row upstream — the UI's "—" there is correct, not a bug.)
-- **There is a SECOND table: `descriptions_cache`** (`SupabaseDescriptionsApi` → `ticker_profiles` → `TickerProfile`), holding the written profile shown on the detail screen: description, pros/cons, next earnings. Keyed by uppercase `ticker`, with the content inside two JSONB blocks (`timeless`, `current`) that are routinely `{}`. **Most tickers have no row at all** — absence is the ordinary case, so the card is simply omitted.
-- **Do NOT reproduce the web's `.maybeSingle()` with `Accept: application/vnd.pgrst.object+json`.** That header makes PostgREST answer **406 on zero rows**, which here is the majority outcome. Ask for an array and take the first element.
-- **Never put the Supabase auth headers in a `defaultRequest`.** The `HttpClient` is a singleton shared with `YahooChartApi`, so a client-wide header would ship the anon key to a third party. Set them per request.
-- **Two clocks, kept apart.** Upstream's `updated_at` + `ttl_days` describe how old the TEXT is and only drive a badge; the local `fetchedAt` describes how old OUR COPY is and is the only thing that gates a refetch. Fusing them would re-download on every open precisely for the stalest rows. For the same reason `next_earnings.days_away` is **recomputed from the date**, never replayed — it is a snapshot that drifts a day per day.
-- **A ticker with no profile gets a tombstone row** (content all null, `fetchedAt` set) so the TTL gate can suppress the refetch. Without it the majority case would hit the network on every visit — this deliberately differs from `refreshPriceSeries`, where a miss writes nothing because it is rare.
+Full guide: [docs/SUPABASE.md](docs/SUPABASE.md). The contract itself — units, the qualifying predicate, what NOT to align with the website — is [docs/UPSTREAM_CONTRACT.md](docs/UPSTREAM_CONTRACT.md).
+- **A single response is capped at 1000 rows server-side** whatever `limit` says, and the table holds ~1800. Page with the `Range` header, or the board is silently corrupted.
+- **Never put the Supabase auth headers in a `defaultRequest`.** The `HttpClient` is shared with `YahooChartApi` — a client-wide header ships the anon key to a third party.
+- **Every field except `ticker` is nullable.** Never crash on a partial row.
+- **Most tickers have no profile row.** Absence is the ordinary case; the card is simply omitted, never an error.
 
 ### Secrets
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` live in **`local.properties`, which is git-ignored**. A Gradle task generates `SupabaseConfig.kt` into `build/`.
@@ -232,6 +238,21 @@ The detail screen shows a price chart with a TradingView-style range selector (`
 - **Keep documentation updated**: if a decision invalidates this file, update it in the same change.
 - **Propose, never autonomously create,** new documentation files.
 
+### Error Handling
+- **Network failures never escape the repository as exceptions.** They become `RefreshResult.Failed(reason, message)` where the user must see it, or a silent no-op leaving the cache intact where they must not.
+- **Catch `CancellationException` first and rethrow it**, before any broader catch. A bare `runCatching` around a suspend call swallows cancellation and breaks structured concurrency — detekt's `SuspendFunSwallowedCancellation` is on for exactly this.
+- Where an exception is deliberately dropped, name it `_` (`catch (_: Throwable)`): that is what tells a reader, and detekt, that it is not an oversight.
+- **Do not build a `Result<T>` wrapper or an `ApiException` hierarchy.** Three read-only clients do not need one; see [docs/NETWORKING.md](docs/NETWORKING.md) for when that changes.
+
+### Debugging & Logging
+- `android.util.Log` does not exist in commonMain. Use `println` with a grep-able prefix: `println("SP_DEBUG ClassName - method: message")`.
+- **Never leave a debug log in a commit.**
+- **Never remove the user's debug logs autonomously** — wait until they confirm the issue is resolved.
+
+### Code Organization
+- **Layering is enforced by package, not by module** — `:shared` is one Gradle module, so nothing checks this but review: `presentation` must not import `data.remote`/`data.local`; `domain` must not import `presentation` or `data`; `ui` never imports `data`.
+- A composable repeated across screens **moves** into `ui/Components.kt`; it is never copied. Shared logic goes into a use case, never into a second ViewModel.
+
 ### Naming
 - Screens: `XxxScreen` (stateful + stateless overloads). ViewModels: `XxxViewModel`. State: `XxxUiState`. Side effects: `XxxSideEffect`.
 - Use cases: `VerbNounUseCase` with `operator fun invoke(...)`.
@@ -244,17 +265,26 @@ The detail screen shows a price chart with a TradingView-style range selector (`
 ### Dimensions & Constants (Compose UI only)
 - These rules apply to Compose UI / presentation code. Non-UI constants (API, data layer) stay in their class or companion object — e.g. `PAGE_SIZE` belongs in `SupabaseScannerApi`.
 - Keep UI dp values and UI constants near their screen; use `internal` to hold module boundaries.
-- Semantic colours shared across screens go in `ui/Colors.kt` (`PositiveGreen`/`NegativeRed`) — not `colorScheme.error`, which means "something went wrong", not "negative number".
+- Semantic colours shared across screens go in `ui/Theme.kt` (`PositiveGreen`/`NegativeRed`) — not `colorScheme.error`, which means "something went wrong", not "negative number".
 
 ### Testing
-Two source sets by capability (run: `./gradlew :shared:testAndroidHostTest :shared:iosSimulatorArm64Test`):
-- **`shared/src/commonTest`** — framework-free, runs on **both** JVM and iOS Native: `MomentumLeadersViewModelTest`, `TickerRepositoryImplTest` (offline-first: a failed refresh must not blank the cache), `NavigatorTest`. `kotlin.test` + Turbine + `kotlinx-coroutines-test` + hand-written fakes. **No MockK** (JVM-only) and **no real Room** (needs a platform driver) here — that keeps the suite green on Native too.
-- **`shared/src/androidHostTest`** — JVM-only, needs a real SQLite engine or Robolectric. `ScannerDaoTest` runs the DAO's real leaders SQL against in-memory Room (`sqlite-bundled-jvm` supplies the host native the Android AAR lacks) with 13 cases covering the fail-safe gate, sort, and geo predicates — the port's correctness proof. Enabled via `androidLibrary { withHostTest { } }` (the AGP9 KMP name for `androidUnitTest`).
-- Prefer testing ViewModels/use cases with fakes of the repository interface; the domain layer is framework-free precisely so this stays trivial.
-- Navigation is testable as plain list manipulation — assert on `Navigator.backStack`, no Compose needed.
+
+**Full guide: [docs/TESTING.md](docs/TESTING.md).** Three source sets, split by what each one is *able* to run:
+
+| Source set | Runs on | Holds |
+|---|---|---|
+| `shared/src/commonTest` | JVM **and** iOS Native | ViewModels, repository, domain, navigation |
+| `shared/src/androidHostTest` | JVM only | `ScannerDaoTest` — the real DAO SQL on real SQLite |
+| `composeApp/src/test` | JVM (Robolectric) | Roborazzi snapshots of the shared CMP screens |
+
+The rules that stop a wrong move:
+- **No MockK, no Truth, no real Room in `commonTest`.** MockK and Truth publish **zero** Kotlin/Native artifacts — they are not awkward here, they are impossible. Use **Mokkery** (mocking) and **Kotest assertions** (matchers), both of which do. Room needs a platform driver.
+- **Assertions are Kotest matchers on the `kotlin.test` runner.** `actual shouldBe expected` — note the operands swap versus `assertEquals`. Prefer a specific matcher (`shouldContain`, `shouldHaveSize`) over `shouldBe true`: a boolean assertion throws away every value on failure.
+- **Fakes drive state; Mokkery verifies interactions.** Do not replace the fakes wholesale with mocks — assigning a `MutableStateFlow` beats stubbing six flows.
 - **Never use optionals in test assertions**: `result!!.message`, not `result?.message` — tests must fail loudly.
-- Model Creators (`modelcreators/`, `base/ModelCreators.kt`) build test data, per the Wishew convention.
-- **`composeApp/src/test`** — Roborazzi screenshot tests of the shared CMP screens, run on the host JVM (`:composeApp:recordRoborazziDebug` / `verifyRoborazziDebug`). They live in the app module, NOT :shared, on purpose: capturing a CMP screen that uses `composeResources` (`stringResource`) needs the compiled `.cvr` on the test classpath, and the AGP9 KMP `androidLibrary` does not propagate them to a host test. The `stageComposeResForTest` Copy task (composeApp `build.gradle.kts`) stages :shared's prepared composeResources into the unit-test classpath in the package-qualified layout the runtime expects; `PreviewContextConfigurationEffect()` then reads them from the classpath. `@Config(application = Application::class)` avoids the app's Koin start firing per test. This was the one genuinely hard piece of test infra — don't "simplify" the staging away.
+- Test names are `WHEN_condition_THEN_expectation`. Snapshot tests are the documented exception: they name an image, not a behaviour.
+- Build test data with the Model Creators in `modelcreators/`, not by hand.
+- Don't "simplify away" the composeResources staging in `composeApp/build.gradle.kts` — it is what makes `stringResource` resolve in a host test.
 
 ### Git & Version Control
 - **NEVER commit changes autonomously** — finish without committing.

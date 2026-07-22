@@ -50,6 +50,21 @@ kotlin {
     }
 }
 
+// Robolectric leaks across tests sharing a JVM — Activities stay reachable from
+// WindowManagerGlobal (robolectric#8395, still open) — and every Roborazzi capture
+// adds a full-screen bitmap on top. Once this suite grew to one baseline per UiState
+// the worker started dying mid-run, which Gradle reports as a bare
+// `java.io.EOFException` with no failing test to point at.
+//
+// forkEvery is the fix, not the heap: a fresh JVM every few tests bounds the leak,
+// which is why the heap here stays MODEST. Raising it instead pushed a 4G Gradle
+// daemon, a 3G Kotlin daemon and the worker past 16GB of RAM, and the daemon then
+// stopped itself for GC thrashing — a slower failure wearing a different mask.
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "1g"
+    forkEvery = 4L
+}
+
 dependencies {
     implementation(projects.shared)
     implementation(compose.runtime)
@@ -79,7 +94,11 @@ dependencies {
 val stageComposeResForTest = tasks.register<Copy>("stageComposeResForTest") {
     val shared = project(":shared")
     dependsOn(shared.tasks.named("prepareComposeResourcesTaskForCommonMain"))
-    from(shared.layout.buildDirectory.dir("generated/compose/resourceGenerator/preparedResources/commonMain/composeResources"))
+    from(
+        shared.layout.buildDirectory.dir(
+            "generated/compose/resourceGenerator/preparedResources/commonMain/composeResources",
+        ),
+    )
     into(layout.buildDirectory.dir("composeResForTest/composeResources/app.stockpickers.kmp.resources"))
 }
 
@@ -101,7 +120,11 @@ tasks.matching {
 val stageComposeResForApp = tasks.register<Copy>("stageComposeResForApp") {
     val shared = project(":shared")
     dependsOn(shared.tasks.named("prepareComposeResourcesTaskForCommonMain"))
-    from(shared.layout.buildDirectory.dir("generated/compose/resourceGenerator/preparedResources/commonMain/composeResources"))
+    from(
+        shared.layout.buildDirectory.dir(
+            "generated/compose/resourceGenerator/preparedResources/commonMain/composeResources",
+        ),
+    )
     into(layout.buildDirectory.dir("generatedAssets/composeResources/app.stockpickers.kmp.resources"))
 }
 

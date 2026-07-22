@@ -19,17 +19,14 @@ package app.stockpickers.kmp.domain
  * move all day and are cached briefly; daily windows barely change intraday and are
  * cached for hours. See `TickerRepositoryImpl.refreshPriceSeries`.
  */
-enum class ChartRange(
-    val label: String,
-    val yahooRange: String,
-    val yahooInterval: String,
-) {
+enum class ChartRange(val label: String, val yahooRange: String, val yahooInterval: String) {
     ONE_DAY("1D", "1d", "5m"),
     ONE_WEEK("1W", "5d", "30m"),
     ONE_MONTH("1M", "1mo", "1d"),
     THREE_MONTHS("3M", "3mo", "1d"),
     SIX_MONTHS("6M", "6mo", "1d"),
-    ONE_YEAR("1Y", "1y", "1d");
+    ONE_YEAR("1Y", "1y", "1d"),
+    ;
 
     /** Stable per-range cache key for the Room composite PK (invariant of the label). */
     val rangeKey: String get() = name

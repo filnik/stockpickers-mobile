@@ -66,15 +66,17 @@ data class DescriptionBlockDto(
  * rest of the app sees a single shape. Anything unrecognisable yields null rather than
  * throwing: one odd field must not cost the reader the whole profile.
  */
-fun DescriptionBlockDto.nextEarningsOrNull(json: Json): NextEarningsDto? =
-    when (val element = nextEarnings) {
-        null, JsonNull -> null
-        is JsonObject -> runCatching { json.decodeFromJsonElement<NextEarningsDto>(element) }.getOrNull()
-        is JsonPrimitive -> element.takeIf { it.isString }?.content
-            ?.takeIf { it.isNotBlank() }
-            ?.let { NextEarningsDto(consensus = it) }
-        else -> null
-    }
+fun DescriptionBlockDto.nextEarningsOrNull(json: Json): NextEarningsDto? = when (val element = nextEarnings) {
+    null, JsonNull -> null
+
+    is JsonObject -> runCatching { json.decodeFromJsonElement<NextEarningsDto>(element) }.getOrNull()
+
+    is JsonPrimitive -> element.takeIf { it.isString }?.content
+        ?.takeIf { it.isNotBlank() }
+        ?.let { NextEarningsDto(consensus = it) }
+
+    else -> null
+}
 
 @Serializable
 data class NextEarningsDto(

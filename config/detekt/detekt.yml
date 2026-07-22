@@ -1,0 +1,102 @@
+# detekt runs with `buildUponDefaultConfig = false`, so THIS FILE IS THE WHOLE
+# RULESET: anything not listed below is off.
+#
+# That is deliberate. detekt here hunts BUGS; style is ktlint's job (via Spotless),
+# and the two overlapping would just produce contradictory advice on the same line.
+# Complexity, naming, formatting and comment rulesets are therefore absent on
+# purpose — do not "complete" this file by enabling them.
+#
+# Type resolution is NOT used (see the `detekt` block in the root build.gradle.kts),
+# so rules that require it will silently do nothing. Only add rules that work
+# without it.
+
+coroutines:
+  active: true
+  GlobalCoroutineUsage:
+    active: true
+  # The single most relevant rule in this file for this codebase: the repository
+  # catches Throwable to keep the offline-first cache intact, and swallowing
+  # CancellationException there would break structured concurrency.
+  SuspendFunSwallowedCancellation:
+    active: true
+  SuspendFunWithCoroutineScopeReceiver:
+    active: true
+
+empty-blocks:
+  active: true
+  EmptyCatchBlock:
+    active: true
+    allowedExceptionNameRegex: '_|(ignore|expected).*'
+
+exceptions:
+  active: true
+  SwallowedException:
+    active: true
+  # Off: the offline-first repository catches Throwable BY DESIGN — a failed
+  # refresh must never blank the cache already on screen. Every such site
+  # rethrows CancellationException first, which is the part that matters and
+  # which SuspendFunSwallowedCancellation above actually checks.
+  TooGenericExceptionCaught:
+    active: false
+  TooGenericExceptionThrown:
+    active: true
+    # Test doubles throw a bare RuntimeException to simulate "the network died".
+    # That is the point of a fake: inventing a domain exception hierarchy just to
+    # satisfy a linter would make the fixtures less honest, not more.
+    excludes:
+      - '**/commonTest/**'
+      - '**/androidHostTest/**'
+      - '**/test/**'
+
+performance:
+  active: true
+  SpreadOperator:
+    active: false
+  UnnecessaryPartOfBinaryExpression:
+    active: true
+
+potential-bugs:
+  active: true
+  CastToNullableType:
+    active: true
+  DoubleMutabilityForCollection:
+    active: true
+  EqualsAlwaysReturnsTrueOrFalse:
+    active: true
+  EqualsWithHashCodeExist:
+    active: true
+  ExplicitGarbageCollectionCall:
+    active: true
+  InvalidRange:
+    active: true
+  IteratorNotThrowingNoSuchElementException:
+    active: true
+  NullableToStringCall:
+    active: true
+  UnconditionalJumpStatementInLoop:
+    active: true
+  UnnecessaryNotNullCheck:
+    active: true
+  UnnecessaryNotNullOperator:
+    active: true
+  UselessPostfixExpression:
+    active: true
+
+style:
+  # detekt 2.x renamed these: 1.x's single `UnusedPrivateMember` was split into
+  # three rules, and `UnusedImports` lost its plural. A 1.23 config fails hard
+  # here rather than silently ignoring the old keys.
+  UnusedPrivateClass:
+    active: true
+  UnusedPrivateFunction:
+    active: true
+    ignoreAnnotated:
+      - 'Preview'
+      - 'Composable'
+  UnusedPrivateProperty:
+    active: true
+    ignoreAnnotated:
+      - 'Preview'
+      - 'Composable'
+  UnusedImport:
+    active: true

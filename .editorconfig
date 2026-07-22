@@ -1,0 +1,41 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 4
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+[*.{yml,yaml,json,toml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[{*.kt,*.kts}]
+# Matches `kotlin.code.style=official` in gradle.properties. ktlint calls that
+# style `intellij_idea`; keeping the two in sync stops the IDE and the formatter
+# from fighting over the same file.
+ktlint_code_style = intellij_idea
+
+# This codebase uses trailing commas throughout. ktlint REMOVES them unless these
+# are on, which would rewrite most multi-line call sites for no reason.
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+
+# No star imports — CLAUDE.md asks for short imports, not wildcard ones.
+ij_kotlin_name_count_to_use_star_import = 2147483647
+ij_kotlin_name_count_to_use_star_import_for_members = 2147483647
+ij_kotlin_imports_layout = *,java.**,javax.**,kotlin.**,^
+
+# NOTE: ktlint's per-rule toggles are NOT here — they live in the `spotless` block
+# of the root build.gradle.kts, because Spotless does not reliably resolve
+# ktlint_* properties out of this file's glob section. Each one is commented there.
+#
+# The 120-column limit above is deliberately left as a real limit rather than a
+# soft guide: ktlint's wrapping rules read the same budget, so switching the
+# max-line-length rule off makes them collapse multi-line signatures and
+# expression bodies onto single very long lines.

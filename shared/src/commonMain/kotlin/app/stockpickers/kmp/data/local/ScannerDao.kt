@@ -4,6 +4,7 @@ import androidx.room3.Dao
 import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
+import androidx.room3.Transaction
 import androidx.room3.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -140,6 +141,29 @@ interface ScannerDao {
     @Upsert
     suspend fun upsertAll(tickers: List<TickerEntity>)
 
+    @Query("DELETE FROM tickers WHERE ticker NOT IN (:keep)")
+    suspend fun deleteTickersNotIn(keep: List<String>)
+
+    /**
+     * Replaces the cached universe with exactly what upstream just published.
+     *
+     * The publisher HARD-DELETES rows every run (delisted names, symbols that left
+     * the universe), so an upsert-only sync would keep them forever and they would
+     * go on qualifying for the board. Upsert-then-delete inside one transaction is
+     * what makes the local copy converge on the remote one.
+     *
+     * Call this ONLY with a complete, successfully-fetched page set. On a partial or
+     * failed fetch the caller must not call it at all: deleting against a truncated
+     * list would wipe most of the cache, which is exactly the offline-first promise
+     * this project makes. The transaction keeps readers from ever observing the
+     * intermediate state where the new rows are in but the old ones are not yet out.
+     */
+    @Transaction
+    suspend fun replaceAll(tickers: List<TickerEntity>) {
+        upsertAll(tickers)
+        deleteTickersNotIn(tickers.map { it.ticker })
+    }
+
     @Query("SELECT COUNT(*) FROM tickers")
     suspend fun count(): Int
 
@@ -195,9 +219,4 @@ interface ScannerDao {
  * SUM yields NULL (which would blow up these non-null Ints on an empty cache),
  * while COUNT yields 0.
  */
-data class GeoCountsRow(
-    val total: Int,
-    val usa: Int,
-    val ita: Int,
-    val asia: Int,
-)
+data class GeoCountsRow(val total: Int, val usa: Int, val ita: Int, val asia: Int)

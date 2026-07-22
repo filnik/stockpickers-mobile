@@ -1,6 +1,6 @@
 # Stockpickers KMP
 
-An offline-first stock-screener client built with **Kotlin Multiplatform** and **Compose Multiplatform**, sharing one codebase across Android and iOS — and deliberately *not* sharing the UI where a native one is better.
+An offline-first stock-screener client built with **Kotlin Multiplatform** and **Compose Multiplatform**: one codebase, one navigation model, and exactly one place where a native renderer earns its keep.
 
 It renders a momentum-leaders board and a per-ticker detail view from a read-only Supabase table, with price charts drawn natively on each platform.
 
@@ -10,7 +10,9 @@ It renders a momentum-leaders board and a per-ticker detail view from a read-onl
 
 **Offline-first, with Room as the single source of truth.** The UI only ever observes Room; the network writes *into* Room in the background (stale-while-revalidate). Lose connectivity and the last synced board stays on screen with an explicit "last updated" marker — never an empty state, never a spinner over nothing.
 
-**Hybrid UI, on purpose.** The leaders list is Compose Multiplatform on both platforms. The ticker detail is Compose on Android and **native SwiftUI on iOS**, both driven by the *same* shared `TickerDetailViewModel` observed from Swift through [SKIE](https://skie.touchlab.co/). The split is where it pays: the iOS chart is Swift Charts with native scrubbing, the Android one is Vico.
+**One shared app, one native seam — arrived at by reverting the maximalist version.** Every screen is Compose Multiplatform on both platforms, behind a single Navigation 3 back stack. The one exception is the price chart: Android draws it with Vico, iOS hands off to Swift Charts for 120 fps scrubbing.
+
+The detail screen *was* once entirely native SwiftUI, observing the shared ViewModel from Swift through [SKIE](https://skie.touchlab.co/). It demonstrated more interop and cost two navigation stacks to keep in step plus a second copy of every screen and every string. Reverting it is the more interesting result than building it was — and the seam that survived is the one where the platform difference is real.
 
 **The strategy lives upstream, and stays there.** This client reads precomputed columns — `clenow`, the momentum windows, the quality-gate verdict — and only sorts and filters them. No formula, threshold or weighting is reimplemented here. The one predicate the app owns is "trend is positive". That boundary is a design rule, not an accident, and the DAO documents it.
 
@@ -23,12 +25,13 @@ It renders a momentum-leaders board and a per-ticker detail view from a read-onl
 | Language / UI | Kotlin 2.4.0, Compose Multiplatform 1.11.1 |
 | Persistence | Room 3.0 (`androidx.room3`), SQLite bundled |
 | Network | Ktor 3.5.1 (OkHttp / Darwin) |
-| DI | Koin 4.2.2 |
+| DI | Koin 4.2.2 + Koin Annotations, graph verified at compile time |
 | Navigation | Navigation 3 (JetBrains CMP port) |
-| iOS interop | SKIE 0.10.13 — `StateFlow` → `AsyncSequence`, enums → Swift `CaseIterable` |
+| iOS interop | SKIE 0.10.13 — Swift-friendly enums and protocols over the Obj-C header |
 | Charts | Swift Charts (iOS) · Vico 2.5.2 (Android) |
 | Build | AGP 9.3.0, Gradle 9.5, KSP2 |
 | Tests | kotlin.test + Turbine (shared, run on JVM *and* iOS), Roborazzi screenshots |
+| Quality | Spotless (ktlint + Compose rules), detekt, git hooks — no CI |
 
 Kotlin is pinned to 2.4.0 rather than 2.4.10 because SKIE hooks compiler internals and supports up to 2.4.0. On a KMP app the toolchain is only as new as its most critical iOS plugin.
 
@@ -47,11 +50,14 @@ The file is git-ignored; the build generates a Kotlin config from it into `build
 
 ```bash
 ./gradlew :composeApp:assembleDebug          # Android
-./gradlew :shared:testAndroidHostTest :shared:iosSimulatorArm64Test
+./gradlew :shared:allTests                   # JVM + iOS Native
 ./gradlew :composeApp:verifyRoborazziDebug   # screenshot tests
+./gradlew spotlessCheck detekt               # formatting + static analysis
 ```
 
-For iOS, open `iosApp/iosApp.xcodeproj` and run on a simulator.
+For iOS, run `cd iosApp && xcodegen generate` (the `.xcodeproj` is generated, not committed), then open it and run on a simulator.
+
+Design notes and conventions live in [`docs/`](docs/); [`CLAUDE.md`](CLAUDE.md) is the index.
 
 ## A note on the price data
 

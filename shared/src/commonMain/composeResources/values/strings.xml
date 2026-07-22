@@ -28,8 +28,11 @@
     <string name="empty_all">No leaders for %1$s</string>
     <string name="empty_geo">No %1$s leaders for %2$s</string>
 
-    <!-- Offline / error surfaces -->
+    <!-- Offline / error surfaces. One per RefreshFailure: only the first blames the
+         user's connection, so the other two must never borrow its wording. -->
     <string name="snackbar_offline_cached">Offline — showing cached data</string>
+    <string name="snackbar_server_cached">Server unavailable — showing cached data</string>
+    <string name="snackbar_refresh_failed_cached">Update failed — showing cached data</string>
     <string name="state_error">Unable to load leaders</string>
     <string name="action_retry">Retry</string>
 
@@ -39,6 +42,7 @@
 
     <!-- Content descriptions -->
     <string name="cd_offline">Offline</string>
+    <string name="cd_sync_failed">Last sync failed</string>
     <string name="cd_refresh">Refresh</string>
     <string name="cd_back">Back</string>
 

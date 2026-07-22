@@ -6,11 +6,7 @@ import app.stockpickers.kmp.domain.PricePoint
 
 /** Android draws with Vico, which is already a Compose composable — nothing to bridge. */
 @Composable
-internal actual fun PlatformPriceChart(
-    points: List<PricePoint>,
-    positive: Boolean,
-    modifier: Modifier,
-) {
+internal actual fun PlatformPriceChart(points: List<PricePoint>, positive: Boolean, modifier: Modifier) {
     PriceChart(
         points = points,
         lineColor = if (positive) PositiveGreen else NegativeRed,

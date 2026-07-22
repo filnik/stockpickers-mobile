@@ -1,5 +1,6 @@
 package app.stockpickers.kmp.data.remote
 
+import app.stockpickers.kmp.data.remote.YahooChartApi.Companion.BROWSER_UA
 import app.stockpickers.kmp.domain.PricePoint
 import app.stockpickers.kmp.domain.PriceSeries
 import io.ktor.client.HttpClient
@@ -9,8 +10,8 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import org.koin.core.annotation.Single
 
 /**
  * Read-only client for Yahoo Finance's public chart endpoint
@@ -31,9 +32,8 @@ import kotlinx.serialization.Serializable
  * The app's tickers are already Yahoo symbols (`DAVE`, `2330.TW`, `BPE.MI`,
  * `8411.T`, `005930.KS`), so no symbol mapping is needed.
  */
-class YahooChartApi(
-    private val client: HttpClient,
-) {
+@Single
+class YahooChartApi(private val client: HttpClient) {
     /**
      * Fetches [ticker]'s history over [range] at candle size [interval], or null
      * when Yahoo has no data for it (`chart.error` set / `result` absent) or every
@@ -44,11 +44,7 @@ class YahooChartApi(
      * caller pairs them from [app.stockpickers.kmp.domain.ChartRange]; an
      * incompatible pair just yields no data (→ null), never a crash.
      */
-    suspend fun fetchChart(
-        ticker: String,
-        range: String = "6mo",
-        interval: String = "1d",
-    ): PriceSeries? {
+    suspend fun fetchChart(ticker: String, range: String = "6mo", interval: String = "1d"): PriceSeries? {
         val body = fetchFrom(HOST_PRIMARY, ticker, range, interval)
             ?: fetchFrom(HOST_FALLBACK, ticker, range, interval)
             ?: return null
@@ -60,12 +56,7 @@ class YahooChartApi(
      * Parsed body from [host], or null to let [fetchChart] fall back to the next
      * host / give up. A 429 lands here as a non-success status → null → fallback.
      */
-    private suspend fun fetchFrom(
-        host: String,
-        ticker: String,
-        range: String,
-        interval: String,
-    ): ChartResponse? {
+    private suspend fun fetchFrom(host: String, ticker: String, range: String, interval: String): ChartResponse? {
         val response: HttpResponse = client.get("https://$host$CHART_PATH$ticker") {
             header(HttpHeaders.UserAgent, BROWSER_UA)
             url.parameters.append("range", range)
@@ -91,7 +82,14 @@ class YahooChartApi(
  */
 private fun ChartResult.toPriceSeries(ticker: String): PriceSeries {
     val timestamps = timestamp.orEmpty()
-    val closes = indicators?.quote?.firstOrNull()?.close.orEmpty()
+    // ADJUSTED closes win when present. The raw `quote.close` series is NOT adjusted
+    // for splits or dividends, so a 10:1 split draws a cliff that never happened —
+    // and, worse, the chart then disagrees with the mom_*/clenow figures shown on the
+    // same screen, which upstream computes on adjusted prices. `adjclose` is daily-
+    // only, so intraday ranges fall back to the raw quote (where, over hours, no
+    // corporate action can have intervened anyway).
+    val adjusted = indicators?.adjclose?.firstOrNull()?.adjclose.orEmpty()
+    val closes = adjusted.ifEmpty { indicators?.quote?.firstOrNull()?.close.orEmpty() }
     val points = timestamps.zip(closes)
         .mapNotNull { (ts, close) -> close?.let { PricePoint(epochSeconds = ts, close = it) } }
     return PriceSeries(
@@ -136,7 +134,15 @@ private data class Meta(
 )
 
 @Serializable
-private data class Indicators(val quote: List<Quote>? = null)
+private data class Indicators(
+    val quote: List<Quote>? = null,
+    /**
+     * Split- and dividend-adjusted closes. Yahoo returns this for DAILY intervals
+     * only — intraday responses have no `adjclose` block at all, which is why
+     * [toPriceSeries] falls back to the raw quote rather than requiring it.
+     */
+    val adjclose: List<AdjClose>? = null,
+)
 
 @Serializable
 private data class Quote(
@@ -144,3 +150,6 @@ private data class Quote(
     // filtered in [toPriceSeries] by pairing with the timestamp.
     val close: List<Double?>? = null,
 )
+
+@Serializable
+private data class AdjClose(val adjclose: List<Double?>? = null)

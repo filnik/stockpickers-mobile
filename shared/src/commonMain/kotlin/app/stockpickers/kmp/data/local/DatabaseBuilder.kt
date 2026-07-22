@@ -12,9 +12,8 @@ expect class DatabaseBuilderFactory {
     fun create(): RoomDatabase.Builder<AppDatabase>
 }
 
-fun DatabaseBuilderFactory.buildDatabase(): AppDatabase =
-    create()
-        .setDriver(BundledSQLiteDriver())
-        .setQueryCoroutineContext(ioDispatcher)
-        .fallbackToDestructiveMigration(dropAllTables = true)
-        .build()
+fun DatabaseBuilderFactory.buildDatabase(): AppDatabase = create()
+    .setDriver(BundledSQLiteDriver())
+    .setQueryCoroutineContext(ioDispatcher)
+    .fallbackToDestructiveMigration(dropAllTables = true)
+    .build()

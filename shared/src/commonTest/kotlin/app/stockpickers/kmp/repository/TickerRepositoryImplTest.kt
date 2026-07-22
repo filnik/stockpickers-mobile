@@ -9,10 +9,20 @@ import app.stockpickers.kmp.data.repository.TickerRepositoryImpl
 import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.ContentFreshness
 import app.stockpickers.kmp.domain.LeaderSort
+import app.stockpickers.kmp.domain.RefreshFailure
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.fake.FakeScannerDao
 import app.stockpickers.kmp.modelcreators.TickerDtoModelCreator
 import app.stockpickers.kmp.modelcreators.TickerEntityModelCreator
+import io.kotest.assertions.withClue
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.maps.shouldContainKey
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -25,11 +35,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.io.IOException
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.ExperimentalTime
@@ -45,7 +53,10 @@ import kotlin.time.ExperimentalTime
  */
 class TickerRepositoryImplTest {
 
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
 
     private fun successApi(rows: List<TickerDto>): SupabaseScannerApi {
         val engine = MockEngine {
@@ -62,14 +73,18 @@ class TickerRepositoryImplTest {
         )
     }
 
-    private fun failingApi(): SupabaseScannerApi {
-        val engine = MockEngine { throw RuntimeException("network down") }
-        return SupabaseScannerApi(
-            client = HttpClient(engine) { install(ContentNegotiation) { json(json) } },
-            baseUrl = "https://test.local",
-            anonKey = "anon",
-        )
-    }
+    /** Unreachable server: an IOException, exactly as both real engines report it. */
+    private fun failingApi(): SupabaseScannerApi = scannerApi(MockEngine { throw IOException("network down") })
+
+    /** Reached and refused — the case that must NOT read as offline. */
+    private fun refusingApi(status: HttpStatusCode): SupabaseScannerApi =
+        scannerApi(MockEngine { respond(content = "", status = status) })
+
+    private fun scannerApi(engine: MockEngine): SupabaseScannerApi = SupabaseScannerApi(
+        client = HttpClient(engine) { install(ContentNegotiation) { json(json) } },
+        baseUrl = "https://test.local",
+        anonKey = "anon",
+    )
 
     // These tests exercise the scanner cache, not the chart. A chart API whose
     // every request 404s keeps the constructor happy without touching Yahoo.
@@ -117,12 +132,12 @@ class TickerRepositoryImplTest {
         val repository = repository(successApi(TickerDtoModelCreator.list(2)), dao)
 
         repository.observeMomentumLeaders(LeaderSort.STRENGTH).test {
-            assertEquals(emptyList(), awaitItem()) // cache starts empty
+            awaitItem().shouldBeEmpty() // cache starts empty
 
             val result = repository.refresh()
-            assertTrue(result is RefreshResult.Success)
+            result.shouldBeInstanceOf<RefreshResult.Success>()
 
-            assertEquals(2, awaitItem().size) // the refresh landed in Room, UI re-rendered
+            awaitItem() shouldHaveSize 2 // the refresh landed in Room, UI re-rendered
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -132,10 +147,10 @@ class TickerRepositoryImplTest {
         val dao = FakeScannerDao()
         val repository = repository(successApi(TickerDtoModelCreator.list(1)), dao)
 
-        assertEquals(RefreshResult.Success, repository.refresh())
+        repository.refresh() shouldBe RefreshResult.Success
 
         repository.observeLastSyncedAt().test {
-            assertTrue(awaitItem() != null) // a successful sync stamps the clock
+            awaitItem().shouldNotBeNull() // a successful sync stamps the clock
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -148,6 +163,69 @@ class TickerRepositoryImplTest {
         {"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":110.0,"chartPreviousClose":100.0},
         "timestamp":[1700000000,1700086400],"indicators":{"quote":[{"close":[105.0,110.0]}]}}],"error":null}}
     """.trimIndent()
+
+    /**
+     * A daily response carrying BOTH series, with deliberately different numbers so a
+     * test can tell which one was read. Yahoo's raw `quote.close` is unadjusted for
+     * splits and dividends; `adjclose` is the one that agrees with the momentum and
+     * clenow figures shown beside the chart.
+     */
+    private val adjustedChartFixture = """
+        {"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":110.0,"chartPreviousClose":100.0},
+        "timestamp":[1700000000,1700086400],
+        "indicators":{"quote":[{"close":[210.0,220.0]}],"adjclose":[{"adjclose":[105.0,110.0]}]}}],"error":null}}
+    """.trimIndent()
+
+    /** Intraday responses have no `adjclose` block at all — the fallback must hold. */
+    private val intradayChartFixture = """
+        {"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":110.0,"chartPreviousClose":100.0},
+        "timestamp":[1700000000,1700086400],"indicators":{"quote":[{"close":[210.0,220.0]}]}}],"error":null}}
+    """.trimIndent()
+
+    private fun chartApiReturning(body: String): YahooChartApi {
+        val engine = MockEngine {
+            respond(
+                content = body,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        return YahooChartApi(HttpClient(engine) { install(ContentNegotiation) { json(json) } })
+    }
+
+    @Test
+    fun WHEN_a_daily_response_carries_adjclose_THEN_the_adjusted_series_is_stored() = runTest {
+        val dao = FakeScannerDao()
+        val repository = TickerRepositoryImpl(
+            api = failingApi(),
+            dao = dao,
+            chartApi = chartApiReturning(adjustedChartFixture),
+            descriptionsApi = descriptionsApi("[]"),
+            json = json,
+        )
+
+        repository.refreshPriceSeries("NVDA", ChartRange.ONE_YEAR)
+
+        val closes = repository.observePriceSeries("NVDA", ChartRange.ONE_YEAR).first()!!.points.map { it.close }
+        closes shouldContainExactly listOf(105.0, 110.0) // adjusted, NOT the raw 210/220
+    }
+
+    @Test
+    fun WHEN_an_intraday_response_has_no_adjclose_THEN_it_falls_back_to_the_raw_close() = runTest {
+        val dao = FakeScannerDao()
+        val repository = TickerRepositoryImpl(
+            api = failingApi(),
+            dao = dao,
+            chartApi = chartApiReturning(intradayChartFixture),
+            descriptionsApi = descriptionsApi("[]"),
+            json = json,
+        )
+
+        repository.refreshPriceSeries("NVDA", ChartRange.ONE_DAY)
+
+        val closes = repository.observePriceSeries("NVDA", ChartRange.ONE_DAY).first()!!.points.map { it.close }
+        closes shouldContainExactly listOf(210.0, 220.0)
+    }
 
     /** A chart API over a MockEngine that records the range/interval it was asked for. */
     private fun recordingChartApi(record: (range: String?, interval: String?) -> Unit): YahooChartApi {
@@ -171,7 +249,11 @@ class TickerRepositoryImplTest {
         val repository = TickerRepositoryImpl(
             api = failingApi(),
             dao = dao,
-            chartApi = recordingChartApi { r, i -> lastRange = r; lastInterval = i; fetchCount++ },
+            chartApi = recordingChartApi { r, i ->
+                lastRange = r
+                lastInterval = i
+                fetchCount++
+            },
             descriptionsApi = descriptionsApi("[]"),
             json = json,
         )
@@ -180,25 +262,27 @@ class TickerRepositoryImplTest {
         // into all four daily rows — one network call instead of four.
         repository.refreshPriceSeries("DAVE", ChartRange.ONE_MONTH)
 
-        assertEquals(1, fetchCount)      // a single Yahoo call...
-        assertEquals("1y", lastRange)    // ...for the widest daily window,
-        assertEquals("1d", lastInterval) // at daily candles.
+        fetchCount shouldBe 1 // a single Yahoo call...
+        lastRange shouldBe "1y" // ...for the widest daily window,
+        lastInterval shouldBe "1d" // at daily candles.
 
         // All four daily ranges are now cached (warmed by the same fetch). With the
         // 2-point fixture every window covers both points, so each carries the same
         // period change derived from the pre-window close (110 vs 100).
         for (range in listOf(
-            ChartRange.ONE_MONTH, ChartRange.THREE_MONTHS,
-            ChartRange.SIX_MONTHS, ChartRange.ONE_YEAR,
+            ChartRange.ONE_MONTH,
+            ChartRange.THREE_MONTHS,
+            ChartRange.SIX_MONTHS,
+            ChartRange.ONE_YEAR,
         )) {
             val cached = repository.observePriceSeries("DAVE", range).first()
-            assertEquals(110.0, cached?.last, "last for $range")
-            assertEquals(10.0, cached?.periodChange, "periodChange for $range")
-            assertEquals(0.1, cached?.periodChangePercent, "periodChangePercent for $range")
+            withClue("last for $range") { cached!!.last shouldBe 110.0 }
+            withClue("periodChange for $range") { cached!!.periodChange shouldBe 10.0 }
+            withClue("periodChangePercent for $range") { cached!!.periodChangePercent shouldBe 0.1 }
         }
 
         // An intraday range is a distinct cache key — untouched by the daily fetch.
-        assertNull(repository.observePriceSeries("DAVE", ChartRange.ONE_DAY).first())
+        repository.observePriceSeries("DAVE", ChartRange.ONE_DAY).first().shouldBeNull()
     }
 
     @Test
@@ -209,16 +293,19 @@ class TickerRepositoryImplTest {
         val repository = TickerRepositoryImpl(
             api = failingApi(),
             dao = dao,
-            chartApi = recordingChartApi { r, i -> lastRange = r; lastInterval = i },
+            chartApi = recordingChartApi { r, i ->
+                lastRange = r
+                lastInterval = i
+            },
             descriptionsApi = descriptionsApi("[]"),
             json = json,
         )
 
         repository.refreshPriceSeries("DAVE", ChartRange.ONE_DAY)
 
-        assertEquals("1d", lastRange)   // ChartRange.ONE_DAY.yahooRange
-        assertEquals("5m", lastInterval) // intraday candles, NOT the daily "1d"
-        assertTrue(ChartRange.ONE_DAY.isIntraday)
+        lastRange shouldBe "1d" // ChartRange.ONE_DAY.yahooRange
+        lastInterval shouldBe "5m" // intraday candles, NOT the daily "1d"
+        ChartRange.ONE_DAY.isIntraday shouldBe true
     }
 
     @Test
@@ -229,17 +316,49 @@ class TickerRepositoryImplTest {
         val repository = repository(failingApi(), dao)
 
         repository.observeMomentumLeaders(LeaderSort.STRENGTH).test {
-            assertEquals(3, awaitItem().size) // warm cache
+            awaitItem() shouldHaveSize 3 // warm cache
 
             val result = repository.refresh()
-            assertTrue(result is RefreshResult.Failed)
-            assertEquals("network down", result.message)
+            result.shouldBeInstanceOf<RefreshResult.Failed>()
+            result.message shouldBe "network down"
+            result.reason shouldBe RefreshFailure.OFFLINE
 
             // The failed refresh must NOT emit an empty list — the cache survives.
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
-        assertEquals(3, dao.count())
+        dao.count() shouldBe 3
+    }
+
+    /**
+     * The failure kinds must stay apart. Reporting a 500 (or an undecodable body) as
+     * OFFLINE tells the user to check a connection that is working perfectly.
+     */
+    @Test
+    fun WHEN_the_server_refuses_THEN_the_failure_is_SERVER_not_OFFLINE() = runTest {
+        val repository = repository(refusingApi(HttpStatusCode.InternalServerError), FakeScannerDao())
+
+        val result = repository.refresh()
+
+        result.shouldBeInstanceOf<RefreshResult.Failed>()
+        result.reason shouldBe RefreshFailure.SERVER
+    }
+
+    @Test
+    fun WHEN_the_payload_cannot_be_decoded_THEN_the_failure_is_UNKNOWN() = runTest {
+        val engine = MockEngine {
+            respond(
+                content = """{"not":"an array"}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val repository = repository(scannerApi(engine), FakeScannerDao())
+
+        val result = repository.refresh()
+
+        result.shouldBeInstanceOf<RefreshResult.Failed>()
+        result.reason shouldBe RefreshFailure.UNKNOWN
     }
 
     // ---- ticker profile: tombstones, the two clocks, and the earnings countdown ----
@@ -250,13 +369,14 @@ class TickerRepositoryImplTest {
 
     /** An ISO date [days] in the future, in the device's own time zone. */
     @OptIn(ExperimentalTime::class)
-    private fun dateInDays(days: Int): String =
-        Clock.System.now().plus(days.days)
-            .toLocalDateTime(TimeZone.currentSystemDefault()).date.toString()
+    private fun dateInDays(days: Int): String = Clock.System.now().plus(days.days)
+        .toLocalDateTime(TimeZone.currentSystemDefault()).date.toString()
 
     private fun profileBody(
         timeless: String = """{"description":"Makes chips.","updated_at":"${daysAgo(2)}","ttl_days":30}""",
-        current: String = """{"description":"Beat estimates.","pro":["Margins up"],"con":["China exposure"],"updated_at":"${daysAgo(1)}","ttl_days":7}""",
+        current: String = """{"description":"Beat estimates.","pro":["Margins up"],"con":["China exposure"],"updated_at":"${daysAgo(
+            1,
+        )}","ttl_days":7}""",
     ) = """[{"ticker":"DAVE","timeless":$timeless,"current":$current}]"""
 
     @Test
@@ -267,11 +387,11 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
 
         val profile = repository.observeProfile("DAVE").first()
-        assertEquals("Makes chips.", profile?.timelessDescription)
-        assertEquals("Beat estimates.", profile?.currentDescription)
-        assertEquals(listOf("Margins up"), profile?.pros)
-        assertEquals(listOf("China exposure"), profile?.cons)
-        assertEquals(ContentFreshness.FRESH, profile?.freshness)
+        profile!!.timelessDescription shouldBe "Makes chips."
+        profile.currentDescription shouldBe "Beat estimates."
+        profile.pros shouldContainExactly listOf("Margins up")
+        profile.cons shouldContainExactly listOf("China exposure")
+        profile.freshness shouldBe ContentFreshness.FRESH
     }
 
     /**
@@ -288,9 +408,9 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
         repository.refreshProfile("DAVE")
 
-        assertEquals(1, calls) // the second call was suppressed by the TTL gate...
-        assertNull(repository.observeProfile("DAVE").first()) // ...and shows nothing
-        assertTrue(dao.profiles.value.containsKey("DAVE")) // but the row IS there
+        calls shouldBe 1 // the second call was suppressed by the TTL gate...
+        repository.observeProfile("DAVE").first().shouldBeNull() // ...and shows nothing
+        dao.profiles.value shouldContainKey "DAVE" // but the row IS there
     }
 
     @Test
@@ -302,7 +422,7 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
         repository.refreshProfile("DAVE")
 
-        assertEquals(1, calls)
+        calls shouldBe 1
     }
 
     @Test
@@ -324,7 +444,7 @@ class TickerRepositoryImplTest {
         )
         broken.refreshProfile("OTHER") // must not throw
 
-        assertEquals("Makes chips.", broken.observeProfile("DAVE").first()?.timelessDescription)
+        broken.observeProfile("DAVE").first()!!.timelessDescription shouldBe "Makes chips."
     }
 
     @Test
@@ -339,7 +459,7 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
 
         // Decodes cleanly (no crash) and collapses to null: the card is simply absent.
-        assertNull(repository.observeProfile("DAVE").first())
+        repository.observeProfile("DAVE").first().shouldBeNull()
     }
 
     @Test
@@ -359,11 +479,11 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
 
         val profile = repository.observeProfile("DAVE").first()
-        assertEquals(ContentFreshness.STALE, profile?.timelessFreshness)
-        assertEquals(ContentFreshness.FRESH, profile?.currentFreshness)
+        profile!!.timelessFreshness shouldBe ContentFreshness.STALE
+        profile.currentFreshness shouldBe ContentFreshness.FRESH
         // One stale block makes the whole card stale — the reader cannot tell which
         // sentence came from which block.
-        assertEquals(ContentFreshness.STALE, profile?.freshness)
+        profile.freshness shouldBe ContentFreshness.STALE
     }
 
     @Test
@@ -378,7 +498,7 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
 
         val profile = repository.observeProfile("DAVE").first()
-        assertEquals(ContentFreshness.UNKNOWN, profile?.freshness)
+        profile!!.freshness shouldBe ContentFreshness.UNKNOWN
     }
 
     /**
@@ -403,9 +523,9 @@ class TickerRepositoryImplTest {
 
         repository.refreshProfile("DAVE")
 
-        val earnings = repository.observeProfile("DAVE").first()?.nextEarnings
-        assertEquals(12, earnings?.daysAway) // NOT the 99 upstream published
-        assertEquals("BUY", earnings?.consensus)
+        val earnings = repository.observeProfile("DAVE").first()!!.nextEarnings
+        earnings!!.daysAway shouldBe 12 // NOT the 99 upstream published
+        earnings.consensus shouldBe "BUY"
     }
 
     /**
@@ -422,16 +542,18 @@ class TickerRepositoryImplTest {
             dao,
             descriptionsApi(
                 profileBody(
-                    current = """{"description":"Beat estimates.","updated_at":"${daysAgo(1)}","next_earnings":{"date":"soon","days_away":12.0,"consensus":"HOLD"}}""",
+                    current = """{"description":"Beat estimates.","updated_at":"${daysAgo(
+                        1,
+                    )}","next_earnings":{"date":"soon","days_away":12.0,"consensus":"HOLD"}}""",
                 ),
             ),
         )
 
         repository.refreshProfile("DAVE")
 
-        val earnings = repository.observeProfile("DAVE").first()?.nextEarnings
-        assertEquals(12, earnings?.daysAway)
-        assertEquals("HOLD", earnings?.consensus)
+        val earnings = repository.observeProfile("DAVE").first()!!.nextEarnings
+        earnings!!.daysAway shouldBe 12
+        earnings.consensus shouldBe "HOLD"
     }
 
     /**
@@ -450,7 +572,9 @@ class TickerRepositoryImplTest {
             dao,
             descriptionsApi(
                 profileBody(
-                    current = """{"description":"Beat estimates.","pro":["Scale"],"updated_at":"${daysAgo(1)}","next_earnings":"Q2 2026 results expected around August 2026."}""",
+                    current = """{"description":"Beat estimates.","pro":["Scale"],"updated_at":"${daysAgo(
+                        1,
+                    )}","next_earnings":"Q2 2026 results expected around August 2026."}""",
                 ),
             ),
         )
@@ -458,11 +582,11 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
 
         val profile = repository.observeProfile("DAVE").first()
-        assertEquals("Beat estimates.", profile?.currentDescription) // the row survived
-        assertEquals(listOf("Scale"), profile?.pros)
-        assertEquals("Q2 2026 results expected around August 2026.", profile?.nextEarnings?.consensus)
-        assertNull(profile?.nextEarnings?.date) // prose only — no date to show
-        assertNull(profile?.nextEarnings?.daysAway)
+        profile!!.currentDescription shouldBe "Beat estimates." // the row survived
+        profile.pros shouldContainExactly listOf("Scale")
+        profile.nextEarnings!!.consensus shouldBe "Q2 2026 results expected around August 2026."
+        profile.nextEarnings!!.date.shouldBeNull() // prose only — no date to show
+        profile.nextEarnings!!.daysAway.shouldBeNull()
     }
 
     /** An unexpected shape must cost the earnings block, never the whole profile. */
@@ -474,7 +598,9 @@ class TickerRepositoryImplTest {
             dao,
             descriptionsApi(
                 profileBody(
-                    current = """{"description":"Beat estimates.","updated_at":"${daysAgo(1)}","next_earnings":[1,2,3]}""",
+                    current = """{"description":"Beat estimates.","updated_at":"${daysAgo(
+                        1,
+                    )}","next_earnings":[1,2,3]}""",
                 ),
             ),
         )
@@ -482,8 +608,8 @@ class TickerRepositoryImplTest {
         repository.refreshProfile("DAVE")
 
         val profile = repository.observeProfile("DAVE").first()
-        assertEquals("Beat estimates.", profile?.currentDescription)
-        assertNull(profile?.nextEarnings)
+        profile!!.currentDescription shouldBe "Beat estimates."
+        profile.nextEarnings.shouldBeNull()
     }
 
     /** With no date there is nothing to anchor a countdown to, so none is claimed. */
@@ -495,15 +621,93 @@ class TickerRepositoryImplTest {
             dao,
             descriptionsApi(
                 profileBody(
-                    current = """{"description":"Beat estimates.","updated_at":"${daysAgo(1)}","next_earnings":{"days_away":99,"consensus":"BUY"}}""",
+                    current = """{"description":"Beat estimates.","updated_at":"${daysAgo(
+                        1,
+                    )}","next_earnings":{"days_away":99,"consensus":"BUY"}}""",
                 ),
             ),
         )
 
         repository.refreshProfile("DAVE")
 
-        val earnings = repository.observeProfile("DAVE").first()?.nextEarnings
-        assertNull(earnings?.daysAway) // upstream's 99 is NOT replayed
-        assertEquals("BUY", earnings?.consensus) // but the consensus is a plain fact
+        val earnings = repository.observeProfile("DAVE").first()!!.nextEarnings
+        earnings!!.daysAway.shouldBeNull() // upstream's 99 is NOT replayed
+        earnings.consensus shouldBe "BUY" // but the consensus is a plain fact
+    }
+
+    // ---- converging on the published universe -------------------------------
+
+    /**
+     * Upstream HARD-DELETES rows every run. An upsert-only sync would keep a delisted
+     * name in Room forever, and it would go on qualifying for the board.
+     */
+    @Test
+    fun WHEN_a_ticker_disappears_upstream_THEN_the_next_refresh_removes_it_from_the_cache() = runTest {
+        val dao = FakeScannerDao()
+        val kept = TickerDtoModelCreator.model.copy(ticker = "KEEP")
+        val dropped = TickerDtoModelCreator.model.copy(ticker = "GONE")
+
+        repository(successApi(listOf(kept, dropped)), dao).refresh()
+        dao.rows.value.map { it.ticker }.toSet() shouldBe setOf("KEEP", "GONE")
+
+        // Second publish no longer contains GONE.
+        repository(successApi(listOf(kept)), dao).refresh()
+        dao.rows.value.map { it.ticker } shouldContainExactly listOf("KEEP")
+    }
+
+    /** The prune must never run against an incomplete list — that IS the offline-first promise. */
+    @Test
+    fun WHEN_the_refresh_fails_THEN_nothing_is_pruned() = runTest {
+        val dao = FakeScannerDao()
+        repository(successApi(TickerDtoModelCreator.list(3)), dao).refresh()
+        val before = dao.rows.value.map { it.ticker }.toSet()
+
+        val result = repository(failingApi(), dao).refresh()
+
+        result.shouldBeInstanceOf<RefreshResult.Failed>()
+        dao.rows.value.map { it.ticker }.toSet() shouldBe before
+    }
+
+    /**
+     * An empty publish is a upstream fault, not a real empty universe — and acting on
+     * it would prune everything. The cache must survive and the refresh must report failure.
+     */
+    @Test
+    fun WHEN_upstream_publishes_no_rows_THEN_the_cache_survives_and_the_refresh_fails() = runTest {
+        val dao = FakeScannerDao()
+        repository(successApi(TickerDtoModelCreator.list(2)), dao).refresh()
+
+        val result = repository(successApi(emptyList()), dao).refresh()
+
+        result.shouldBeInstanceOf<RefreshResult.Failed>()
+        dao.rows.value shouldHaveSize 2
+    }
+
+    // ---- unit conventions ----------------------------------------------------
+
+    /**
+     * `mom_12m` falls back to `ann_mom`, exactly as upstream's writer and web client do.
+     * Both are DECIMAL FRACTIONS: upstream's own `scanner_cache.md` claims ann_mom is in
+     * percent units, and following that doc would divide every fallback value by 100.
+     */
+    @Test
+    fun WHEN_mom_12m_is_missing_THEN_ann_mom_stands_in_unscaled() = runTest {
+        val dao = FakeScannerDao()
+        val row = TickerDtoModelCreator.model.copy(ticker = "AMOM", mom12m = null, annMom = 0.45)
+
+        repository(successApi(listOf(row)), dao).refresh()
+
+        dao.rows.value.single().mom12m shouldBe 0.45
+    }
+
+    /** When upstream sends both, the explicit window wins — ann_mom is only a fallback. */
+    @Test
+    fun WHEN_both_mom_12m_and_ann_mom_are_present_THEN_mom_12m_wins() = runTest {
+        val dao = FakeScannerDao()
+        val row = TickerDtoModelCreator.model.copy(ticker = "BOTH", mom12m = 0.10, annMom = 0.99)
+
+        repository(successApi(listOf(row)), dao).refresh()
+
+        dao.rows.value.single().mom12m shouldBe 0.10
     }
 }

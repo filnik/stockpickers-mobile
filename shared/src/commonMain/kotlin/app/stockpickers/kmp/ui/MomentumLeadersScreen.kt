@@ -6,9 +6,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.stockpickers.kmp.domain.GeoCounts
 import app.stockpickers.kmp.domain.GeoFilter
 import app.stockpickers.kmp.domain.LeaderSort
+import app.stockpickers.kmp.domain.RefreshFailure
 import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.presentation.MomentumLeadersUiState
 import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
@@ -61,12 +65,15 @@ import app.stockpickers.kmp.resources.action_retry
 import app.stockpickers.kmp.resources.caption_clenow
 import app.stockpickers.kmp.resources.cd_offline
 import app.stockpickers.kmp.resources.cd_refresh
+import app.stockpickers.kmp.resources.cd_sync_failed
 import app.stockpickers.kmp.resources.col_title
 import app.stockpickers.kmp.resources.empty_all
 import app.stockpickers.kmp.resources.empty_geo
 import app.stockpickers.kmp.resources.geo_all
 import app.stockpickers.kmp.resources.leaders_title
 import app.stockpickers.kmp.resources.snackbar_offline_cached
+import app.stockpickers.kmp.resources.snackbar_refresh_failed_cached
+import app.stockpickers.kmp.resources.snackbar_server_cached
 import app.stockpickers.kmp.resources.sort_strength
 import app.stockpickers.kmp.resources.state_error
 import app.stockpickers.kmp.resources.sync_last
@@ -78,13 +85,12 @@ import app.stockpickers.kmp.resources.time_just_now
 import app.stockpickers.kmp.resources.time_minutes_ago
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun MomentumLeadersScreen(
+    viewModel: MomentumLeadersViewModel,
     onTickerClick: (String) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: MomentumLeadersViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     MomentumLeadersScreen(
@@ -123,14 +129,22 @@ fun MomentumLeadersScreen(
 
     // stringResource is @Composable, so the message must be resolved here and
     // captured — it cannot be read inside the LaunchedEffect coroutine below.
-    val offlineCachedMessage = stringResource(Res.string.snackbar_offline_cached)
+    val failureMessage = when (state.refreshFailure) {
+        RefreshFailure.OFFLINE -> stringResource(Res.string.snackbar_offline_cached)
+        RefreshFailure.SERVER -> stringResource(Res.string.snackbar_server_cached)
+        RefreshFailure.UNKNOWN -> stringResource(Res.string.snackbar_refresh_failed_cached)
+        null -> null
+    }
+
+    // Keyed on the message, so the callback must not be captured directly: a caller
+    // passing a fresh lambda would leave this effect invoking a stale one.
+    val currentOnErrorDismissed by rememberUpdatedState(onErrorDismissed)
 
     // Surface refresh failures without hiding the cache underneath.
     LaunchedEffect(state.errorMessage) {
-        val message = state.errorMessage
-        if (message != null && state.leaders.isNotEmpty()) {
-            snackbarHostState.showSnackbar(offlineCachedMessage)
-            onErrorDismissed()
+        if (state.errorMessage != null && failureMessage != null && state.leaders.isNotEmpty()) {
+            snackbarHostState.showSnackbar(failureMessage)
+            currentOnErrorDismissed()
         }
     }
 
@@ -153,14 +167,17 @@ fun MomentumLeadersScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 when {
-                    state.isLoading -> CenteredBox { CircularProgressIndicator() }
-                    state.isFatal -> CenteredBox {
+                    state.isLoading -> CenteredFill { CircularProgressIndicator() }
+
+                    state.isFatal -> CenteredFill {
                         ErrorContent(state.errorMessage.orEmpty(), onRefresh)
                     }
-                    state.isEmpty -> CenteredBox {
+
+                    state.isEmpty -> CenteredFill {
                         Text(
                             text = when (state.geo) {
                                 GeoFilter.ALL -> stringResource(Res.string.empty_all, state.sort.displayLabel())
+
                                 else -> stringResource(
                                     Res.string.empty_geo,
                                     state.geo.displayLabel(),
@@ -171,6 +188,7 @@ fun MomentumLeadersScreen(
                             color = OnSurfaceVariant,
                         )
                     }
+
                     else -> Column(Modifier.fillMaxSize()) {
                         ColumnHeaders(state.sort)
                         LazyColumn(Modifier.fillMaxSize()) {
@@ -191,8 +209,10 @@ fun MomentumLeadersScreen(
     }
 }
 
+// Emits the row AND its rule as one unit: two top-level siblings would only lay out
+// correctly inside a Column, making the parent's layout an unstated precondition.
 @Composable
-private fun BoardHeader(state: MomentumLeadersUiState, onRefresh: () -> Unit) {
+private fun BoardHeader(state: MomentumLeadersUiState, onRefresh: () -> Unit) = Column {
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -205,10 +225,14 @@ private fun BoardHeader(state: MomentumLeadersUiState, onRefresh: () -> Unit) {
             )
             SyncStatusLabel(state)
         }
-        if (state.isOffline) {
+        // A cloud with a slash means "your connection"; anything else is upstream's
+        // fault and gets the neutral sync badge instead.
+        if (state.isStale) {
             Icon(
-                imageVector = Icons.Default.CloudOff,
-                contentDescription = stringResource(Res.string.cd_offline),
+                imageVector = if (state.isOffline) Icons.Default.CloudOff else Icons.Default.SyncProblem,
+                contentDescription = stringResource(
+                    if (state.isOffline) Res.string.cd_offline else Res.string.cd_sync_failed,
+                ),
                 tint = NegativeRed,
                 modifier = Modifier.padding(end = 4.dp),
             )
@@ -232,14 +256,16 @@ private fun SyncStatusLabel(state: MomentumLeadersUiState) {
     }
     val text = when {
         state.isRefreshing -> stringResource(Res.string.sync_syncing)
+
         state.lastSyncedAt != null ->
             stringResource(Res.string.sync_last, relativeTimeLabel(state.lastSyncedAt, now))
+
         else -> stringResource(Res.string.sync_never)
     }
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
-        color = if (state.isOffline) NegativeRed else OnSurfaceVariant,
+        color = if (state.isStale) NegativeRed else OnSurfaceVariant,
     )
 }
 
@@ -249,33 +275,14 @@ private fun SyncStatusLabel(state: MomentumLeadersUiState) {
  */
 @Composable
 private fun SortSegments(selected: LeaderSort, onSortSelected: (LeaderSort) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .background(SurfaceTile, CircleShape)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        LeaderSort.entries.forEach { sort ->
-            val active = sort == selected
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(if (active) PrimaryContainer else Color.Transparent, CircleShape)
-                    .clickable { onSortSelected(sort) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = sort.displayLabel().uppercase(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                    color = if (active) Color.White else OnSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
+    SegmentedControl(
+        items = LeaderSort.entries,
+        selected = selected,
+        label = { it.displayLabel().uppercase() },
+        textStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+        onSelect = onSortSelected,
+        outerPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+    )
 }
 
 /**
@@ -284,11 +291,7 @@ private fun SortSegments(selected: LeaderSort, onSortSelected: (LeaderSort) -> U
  * pills rather than one track, because the row scrolls: a shared track would clip.
  */
 @Composable
-private fun GeoFilterChips(
-    selected: GeoFilter,
-    counts: GeoCounts,
-    onGeoSelected: (GeoFilter) -> Unit,
-) {
+private fun GeoFilterChips(selected: GeoFilter, counts: GeoCounts, onGeoSelected: (GeoFilter) -> Unit) = Column {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -350,7 +353,7 @@ private val AccentWidth = 3.dp
 private val RowPadding = 12.dp
 
 @Composable
-private fun ColumnHeaders(sort: LeaderSort) {
+private fun ColumnHeaders(sort: LeaderSort) = Column {
     val cols = columnsFor(sort)
     Row(
         modifier = Modifier
@@ -488,11 +491,6 @@ private fun ErrorContent(message: String, onRetry: () -> Unit) {
         Text(text = message, style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
         Button(onClick = onRetry) { Text(stringResource(Res.string.action_retry)) }
     }
-}
-
-@Composable
-private fun CenteredBox(content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
 
 /**

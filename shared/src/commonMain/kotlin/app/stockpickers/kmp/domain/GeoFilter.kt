@@ -34,12 +34,7 @@ enum class GeoFilter(val key: String, val label: String) {
  *
  * By construction [usa] + [ita] + [asia] == [total] (see [GeoFilter]).
  */
-data class GeoCounts(
-    val total: Int = 0,
-    val usa: Int = 0,
-    val ita: Int = 0,
-    val asia: Int = 0,
-) {
+data class GeoCounts(val total: Int = 0, val usa: Int = 0, val ita: Int = 0, val asia: Int = 0) {
     operator fun get(filter: GeoFilter): Int = when (filter) {
         GeoFilter.ALL -> total
         GeoFilter.US -> usa

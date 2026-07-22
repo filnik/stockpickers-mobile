@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.isSuccess
+import org.koin.core.annotation.Single
 
 /**
  * Read-only client for the `descriptions_cache` PostgREST endpoint — one row by
@@ -26,6 +27,7 @@ import io.ktor.http.isSuccess
  * a shared singleton that also talks to Yahoo Finance, so a `defaultRequest` block
  * would send the Supabase key to a third party.
  */
+@Single
 class SupabaseDescriptionsApi(
     private val client: HttpClient,
     private val baseUrl: String = SupabaseConfig.URL,

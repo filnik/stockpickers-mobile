@@ -23,10 +23,7 @@ import androidx.navigation3.ui.NavDisplay
  * AND on iOS. Adding a BackHandler on top would pop twice.
  */
 @Composable
-fun Nav3Host(
-    navigator: Navigator,
-    modifier: Modifier = Modifier,
-) {
+fun Nav3Host(navigator: Navigator, modifier: Modifier = Modifier) {
     NavDisplay(
         backStack = navigator.backStack,
         onBack = { navigator.goBack() },

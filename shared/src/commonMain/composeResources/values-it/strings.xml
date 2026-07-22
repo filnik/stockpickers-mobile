@@ -18,11 +18,14 @@
     <string name="empty_geo">Nessun leader %1$s per %2$s</string>
 
     <string name="snackbar_offline_cached">Offline — dati in cache</string>
+    <string name="snackbar_server_cached">Server non disponibile — dati in cache</string>
+    <string name="snackbar_refresh_failed_cached">Aggiornamento fallito — dati in cache</string>
     <string name="state_error">Impossibile caricare i leader</string>
     <string name="action_retry">Riprova</string>
 
     <!-- Content descriptions -->
     <string name="cd_offline">Offline</string>
+    <string name="cd_sync_failed">Ultima sincronizzazione fallita</string>
     <string name="cd_refresh">Aggiorna</string>
     <string name="cd_back">Indietro</string>
 

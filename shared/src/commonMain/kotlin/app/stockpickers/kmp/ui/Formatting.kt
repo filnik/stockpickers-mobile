@@ -30,19 +30,16 @@ internal fun formatClenow(value: Double?): String = value?.format(2) ?: "—"
  * A plain ratio (P/E, PEG, R²). Unitless — do NOT append '%'.
  * Mirrors the upstream web client's `ratio()`.
  */
-internal fun formatRatio(value: Double?, decimals: Int = 2): String =
-    value?.format(decimals) ?: "—"
+internal fun formatRatio(value: Double?, decimals: Int = 2): String = value?.format(decimals) ?: "—"
 
 /**
  * ROIC is a decimal FRACTION upstream (0.18 → "18.0%"), exactly like `mom_*`.
  * Authority: `RichPickCard.tsx` renders it as `formatNumberIt(v * 100, 0)%`.
  * Unlike [formatMomentum] it carries no explicit '+' — it is a level, not a delta.
  */
-internal fun formatPercent(fraction: Double?): String =
-    fraction?.let { (it * 100).format(1) + "%" } ?: "—"
+internal fun formatPercent(fraction: Double?): String = fraction?.let { (it * 100).format(1) + "%" } ?: "—"
 
-internal fun formatPriceEur(value: Double?): String =
-    value?.let { "€" + it.format(2) } ?: "—"
+internal fun formatPriceEur(value: Double?): String = value?.let { "€" + it.format(2) } ?: "—"
 
 /**
  * The symbol for an ISO currency code, or null when it has no widely-read one.

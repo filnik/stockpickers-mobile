@@ -4,22 +4,6 @@ import app.stockpickers.kmp.data.local.AppDatabase
 import app.stockpickers.kmp.data.local.DatabaseBuilderFactory
 import app.stockpickers.kmp.data.local.ScannerDao
 import app.stockpickers.kmp.data.local.buildDatabase
-import app.stockpickers.kmp.data.remote.SupabaseDescriptionsApi
-import app.stockpickers.kmp.data.remote.SupabaseScannerApi
-import app.stockpickers.kmp.data.remote.YahooChartApi
-import app.stockpickers.kmp.data.repository.TickerRepositoryImpl
-import app.stockpickers.kmp.domain.GetGeoCountsUseCase
-import app.stockpickers.kmp.domain.GetMomentumLeadersUseCase
-import app.stockpickers.kmp.domain.GetTickerDetailUseCase
-import app.stockpickers.kmp.domain.ObserveLastSyncedAtUseCase
-import app.stockpickers.kmp.domain.ObservePriceSeriesUseCase
-import app.stockpickers.kmp.domain.ObserveTickerProfileUseCase
-import app.stockpickers.kmp.domain.RefreshPriceSeriesUseCase
-import app.stockpickers.kmp.domain.RefreshTickerProfileUseCase
-import app.stockpickers.kmp.domain.RefreshTickersUseCase
-import app.stockpickers.kmp.domain.TickerRepository
-import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
-import app.stockpickers.kmp.presentation.TickerDetailViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpTimeout
@@ -27,83 +11,73 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import org.koin.core.KoinApplication
+import org.koin.core.annotation.ComponentScan
+import org.koin.core.annotation.Module
+import org.koin.core.annotation.Single
 import org.koin.core.context.startKoin
-import org.koin.core.module.Module
-import org.koin.core.module.dsl.viewModel
-import org.koin.dsl.module
+import org.koin.core.module.Module as KoinModule
 
-/** Platform-specific bindings (HttpClient engine, DatabaseBuilderFactory). */
-expect val platformModule: Module
+/**
+ * Platform-specific bindings (HttpClient engine, DatabaseBuilderFactory).
+ *
+ * This one stays classic DSL on purpose while the rest of the graph is annotated.
+ * Its bindings are not classes we own — `OkHttp.create()` / `Darwin.create()` are
+ * factory calls, and the Android database builder needs `androidContext()` — so
+ * there is nothing to put an annotation on. Mixing the two styles is supported;
+ * [initKoin] simply passes both modules.
+ */
+expect val platformModule: KoinModule
 
-val coreModule = module {
-    single {
-        Json {
-            ignoreUnknownKeys = true // upstream adds fields without warning
-            isLenient = true
-            explicitNulls = false
-            coerceInputValues = true
+/**
+ * The shared graph.
+ *
+ * `@ComponentScan` picks up everything annotated under the package: the three API
+ * clients, the repository, the nine use cases and both ViewModels. Only the
+ * third-party types that cannot carry an annotation are declared by hand below.
+ *
+ * Scope rule for this project: **everything is `@Single` except ViewModels.** Koin
+ * singles are lazy unless `createdAtStart`, and these are stateless collaborators
+ * holding one reference each — a `@Factory` would allocate per injection for no
+ * benefit. (Wishew's Koin guide lists "single for use cases" as a mistake; that is
+ * advice for a 200-module app with heavyweight graphs, and it does not transfer.)
+ */
+@Module
+@ComponentScan("app.stockpickers.kmp")
+class AppModule {
+
+    @Single
+    fun json(): Json = Json {
+        ignoreUnknownKeys = true // upstream adds fields without warning
+        isLenient = true
+        explicitNulls = false
+        coerceInputValues = true
+    }
+
+    /**
+     * One client for every remote source. The engine comes from [platformModule].
+     *
+     * Note this is shared with YahooChartApi, which is why the Supabase auth headers
+     * are set per request and never in a `defaultRequest`: a client-wide header would
+     * ship the anon key to a third party.
+     */
+    @Single
+    fun httpClient(engine: HttpClientEngine, json: Json): HttpClient = HttpClient(engine) {
+        install(ContentNegotiation) { json(json) }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 60_000
+            connectTimeoutMillis = 20_000
+            socketTimeoutMillis = 60_000
         }
     }
-    single {
-        // Engine (OkHttp / Darwin) is bound by platformModule.
-        HttpClient(get<HttpClientEngine>()) {
-            install(ContentNegotiation) { json(get<Json>()) }
-            install(HttpTimeout) {
-                requestTimeoutMillis = 60_000
-                connectTimeoutMillis = 20_000
-                socketTimeoutMillis = 60_000
-            }
-        }
-    }
-    single { SupabaseScannerApi(get()) }
-    single { YahooChartApi(get()) }
-    single { SupabaseDescriptionsApi(get()) }
 
-    single<AppDatabase> { get<DatabaseBuilderFactory>().buildDatabase() }
-    single<ScannerDao> { get<AppDatabase>().scannerDao() }
+    @Single
+    fun appDatabase(factory: DatabaseBuilderFactory): AppDatabase = factory.buildDatabase()
 
-    single<TickerRepository> {
-        TickerRepositoryImpl(
-            api = get(),
-            dao = get(),
-            chartApi = get(),
-            descriptionsApi = get(),
-            json = get(),
-        )
-    }
-    single { GetMomentumLeadersUseCase(get()) }
-    single { GetGeoCountsUseCase(get()) }
-    single { GetTickerDetailUseCase(get()) }
-    single { ObserveLastSyncedAtUseCase(get()) }
-    single { RefreshTickersUseCase(get()) }
-    single { ObservePriceSeriesUseCase(get()) }
-    single { RefreshPriceSeriesUseCase(get()) }
-    single { ObserveTickerProfileUseCase(get()) }
-    single { RefreshTickerProfileUseCase(get()) }
-
-    viewModel {
-        MomentumLeadersViewModel(
-            getMomentumLeaders = get(),
-            getGeoCounts = get(),
-            observeLastSyncedAt = get(),
-            refreshTickers = get(),
-        )
-    }
-    // `params.get()` pulls the AppNavKey.TickerDetail handed over by the
-    // EntryProvider's `parametersOf(key)`; the rest is resolved from the graph.
-    viewModel { params ->
-        TickerDetailViewModel(
-            navKey = params.get(),
-            getTickerDetail = get(),
-            observePriceSeries = get(),
-            observeTickerProfile = get(),
-            refreshPriceSeries = get(),
-            refreshTickerProfile = get(),
-        )
-    }
+    @Single
+    fun scannerDao(database: AppDatabase): ScannerDao = database.scannerDao()
 }
 
 fun initKoin(appDeclaration: KoinApplication.() -> Unit = {}) = startKoin {
     appDeclaration()
-    modules(platformModule, coreModule)
+    modules(platformModule, AppModule().module())
 }

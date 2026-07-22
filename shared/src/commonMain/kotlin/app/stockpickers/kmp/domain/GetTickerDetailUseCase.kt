@@ -1,6 +1,7 @@
 package app.stockpickers.kmp.domain
 
 import kotlinx.coroutines.flow.Flow
+import org.koin.core.annotation.Single
 
 /**
  * One ticker's detail, straight from the local cache — offline-first, no network.
@@ -9,8 +10,7 @@ import kotlinx.coroutines.flow.Flow
  * [TickerRepository.refresh]'s job, driven by the leaders screen; the detail
  * screen re-renders on its own because Room re-emits after every sync.
  */
-class GetTickerDetailUseCase(
-    private val repository: TickerRepository,
-) {
+@Single
+class GetTickerDetailUseCase(private val repository: TickerRepository) {
     operator fun invoke(ticker: String): Flow<TickerDetail?> = repository.observeTicker(ticker)
 }

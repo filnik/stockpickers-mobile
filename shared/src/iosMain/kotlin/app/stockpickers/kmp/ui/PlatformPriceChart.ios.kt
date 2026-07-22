@@ -51,11 +51,7 @@ object NativePriceChart {
  * plainer — which is the right way round for a UI detail.
  */
 @Composable
-internal actual fun PlatformPriceChart(
-    points: List<PricePoint>,
-    positive: Boolean,
-    modifier: Modifier,
-) {
+internal actual fun PlatformPriceChart(points: List<PricePoint>, positive: Boolean, modifier: Modifier) {
     val renderer = NativePriceChart.renderer
     if (renderer == null) {
         PriceChart(

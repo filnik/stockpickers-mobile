@@ -8,10 +8,11 @@ import app.stockpickers.kmp.data.local.TickerEntity
 import app.stockpickers.kmp.data.local.TickerProfileEntity
 import app.stockpickers.kmp.data.remote.DescriptionsRowDto
 import app.stockpickers.kmp.data.remote.SupabaseDescriptionsApi
-import app.stockpickers.kmp.data.remote.nextEarningsOrNull
+import app.stockpickers.kmp.data.remote.SupabaseHttpException
 import app.stockpickers.kmp.data.remote.SupabaseScannerApi
 import app.stockpickers.kmp.data.remote.TickerDto
 import app.stockpickers.kmp.data.remote.YahooChartApi
+import app.stockpickers.kmp.data.remote.nextEarningsOrNull
 import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.ContentFreshness
 import app.stockpickers.kmp.domain.GeoCounts
@@ -21,6 +22,7 @@ import app.stockpickers.kmp.domain.NextEarnings
 import app.stockpickers.kmp.domain.PricePoint
 import app.stockpickers.kmp.domain.PriceSeries
 import app.stockpickers.kmp.domain.QualityGate
+import app.stockpickers.kmp.domain.RefreshFailure
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.domain.Ticker
 import app.stockpickers.kmp.domain.TickerDetail
@@ -32,14 +34,17 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.daysUntil
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.io.IOException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.koin.core.annotation.Single
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
+@Single
 class TickerRepositoryImpl(
     private val api: SupabaseScannerApi,
     private val dao: ScannerDao,
@@ -48,38 +53,51 @@ class TickerRepositoryImpl(
     private val json: Json,
 ) : TickerRepository {
 
-    override fun observeMomentumLeaders(
-        sort: LeaderSort,
-        geo: GeoFilter,
-        limit: Int,
-    ): Flow<List<Ticker>> = dao.observeMomentumLeaders(sort.sortKey, geo.key, limit)
-        .map { rows -> rows.map(TickerEntity::toDomain) }
+    override fun observeMomentumLeaders(sort: LeaderSort, geo: GeoFilter, limit: Int): Flow<List<Ticker>> =
+        dao.observeMomentumLeaders(sort.sortKey, geo.key, limit)
+            .map { rows -> rows.map(TickerEntity::toDomain) }
 
     override fun observeGeoCounts(sort: LeaderSort): Flow<GeoCounts> =
         dao.observeGeoCounts(sort.sortKey).map(GeoCountsRow::toDomain)
 
-    override fun observeTicker(ticker: String): Flow<TickerDetail?> =
-        dao.observeTicker(ticker).map { row -> row?.toDetail() }
+    override fun observeTicker(ticker: String): Flow<TickerDetail?> = dao.observeTicker(ticker).map { row ->
+        row?.toDetail()
+    }
 
     override fun observeLastSyncedAt(): Flow<Long?> = dao.observeLastSyncedAt()
 
     @OptIn(ExperimentalTime::class)
     override suspend fun refresh(): RefreshResult = try {
         val remote = api.fetchScannerCache()
-        // Upsert (never wipe-then-insert): a partial failure must not leave the
-        // user staring at an empty screen.
-        dao.upsertAll(remote.map(TickerDto::toEntity))
-        dao.setSyncMetadata(SyncMetadataEntity(lastSyncedAt = Clock.System.now().toEpochMilliseconds()))
-        RefreshResult.Success
+        if (remote.isEmpty()) {
+            // An empty universe is a publishing fault, not a legitimate state, and
+            // acting on it would prune the entire cache. Fail instead: the user keeps
+            // a stale board, which beats an empty one.
+            RefreshResult.Failed(
+                reason = RefreshFailure.SERVER,
+                message = "scanner_cache returned no rows",
+            )
+        } else {
+            // Reached only when every page came back, so `remote` is the WHOLE
+            // published universe and it is safe to delete what is missing from it:
+            // upstream hard-deletes rows each run, and an upsert-only sync would keep
+            // delisted names on the board forever. A failed or truncated fetch throws
+            // before this line, so the cache is never pruned against a partial list.
+            dao.replaceAll(remote.map(TickerDto::toEntity))
+            dao.setSyncMetadata(SyncMetadataEntity(lastSyncedAt = Clock.System.now().toEpochMilliseconds()))
+            RefreshResult.Success
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Throwable) {
-        // Offline / server error: the cached rows stay on screen untouched.
-        RefreshResult.Failed(e.message ?: "Unknown error")
+        // Whatever went wrong, the cached rows stay on screen untouched.
+        RefreshResult.Failed(reason = e.toRefreshFailure(), message = e.message ?: "Unknown error")
     }
 
     override fun observePriceSeries(ticker: String, range: ChartRange): Flow<PriceSeries?> =
-        dao.observePriceSeries(ticker, range.rangeKey).map { entity -> entity?.toDomain(json) }
+        dao.observePriceSeries(ticker, range.rangeKey).map { entity ->
+            entity?.toDomain(json)
+        }
 
     @OptIn(ExperimentalTime::class)
     override suspend fun refreshPriceSeries(ticker: String, range: ChartRange) {
@@ -87,8 +105,11 @@ class TickerRepositoryImpl(
             if (range.isIntraday) refreshIntraday(ticker, range) else refreshDailyGroup(ticker)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Throwable) {
+        } catch (_: Throwable) {
             // Offline / 429 / parse error: graceful — whatever is cached survives.
+            // Named `_` on purpose: the exception is dropped by design, and the
+            // underscore is what tells both a reader and detekt that it is not an
+            // oversight.
         }
     }
 
@@ -166,7 +187,7 @@ class TickerRepositoryImpl(
             dao.upsertProfile(row.toEntity(localTicker = ticker, fetchedAt = now, json = json))
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Throwable) {
+        } catch (_: Throwable) {
             // Offline / server error / breaking payload change: graceful — whatever is
             // cached survives, and no tombstone is written (we learned nothing).
         }
@@ -200,30 +221,46 @@ class TickerRepositoryImpl(
     }
 }
 
+/**
+ * Sorts a thrown failure into the three buckets the UI can talk about.
+ *
+ * [IOException] is the one marker that means "we never got an answer" on BOTH
+ * engines: OkHttp's DNS/connect failures, Darwin's `DarwinHttpRequestException` and
+ * Ktor's own timeouts all extend it. Anything else DID reach the server, so it is
+ * not offline — calling it that would blame the user's connection for our fault or
+ * upstream's.
+ */
+private fun Throwable.toRefreshFailure(): RefreshFailure = when (this) {
+    is IOException -> RefreshFailure.OFFLINE
+
+    is SupabaseHttpException -> RefreshFailure.SERVER
+
+    // Serialization, an unexpected body, a DB write: reached and answered, unusable.
+    else -> RefreshFailure.UNKNOWN
+}
+
 /** Persistence mirror of [PricePoint] — keeps @Serializable out of the domain. */
 @Serializable
 private data class PricePointJson(val t: Long, val c: Double)
 
-private fun PriceSeries.toEntity(rangeKey: String, fetchedAt: Long, json: Json): PriceSeriesEntity =
-    PriceSeriesEntity(
-        ticker = ticker,
-        rangeKey = rangeKey,
-        currency = currency,
-        last = last,
-        previousClose = previousClose,
-        pointsJson = json.encodeToString(points.map { PricePointJson(it.epochSeconds, it.close) }),
-        fetchedAt = fetchedAt,
-    )
+private fun PriceSeries.toEntity(rangeKey: String, fetchedAt: Long, json: Json): PriceSeriesEntity = PriceSeriesEntity(
+    ticker = ticker,
+    rangeKey = rangeKey,
+    currency = currency,
+    last = last,
+    previousClose = previousClose,
+    pointsJson = json.encodeToString(points.map { PricePointJson(it.epochSeconds, it.close) }),
+    fetchedAt = fetchedAt,
+)
 
-private fun PriceSeriesEntity.toDomain(json: Json): PriceSeries =
-    PriceSeries(
-        ticker = ticker,
-        currency = currency,
-        last = last,
-        previousClose = previousClose,
-        points = json.decodeFromString<List<PricePointJson>>(pointsJson)
-            .map { PricePoint(epochSeconds = it.t, close = it.c) },
-    )
+private fun PriceSeriesEntity.toDomain(json: Json): PriceSeries = PriceSeries(
+    ticker = ticker,
+    currency = currency,
+    last = last,
+    previousClose = previousClose,
+    points = json.decodeFromString<List<PricePointJson>>(pointsJson)
+        .map { PricePoint(epochSeconds = it.t, close = it.c) },
+)
 
 // --- Ticker profile -------------------------------------------------------------
 //
@@ -243,11 +280,7 @@ private const val CURRENT_TTL_DAYS = 7
  * this ticker: that produces a TOMBSTONE — an all-null row whose only real content is
  * [TickerProfileEntity.fetchedAt] — so we remember having asked.
  */
-private fun DescriptionsRowDto?.toEntity(
-    localTicker: String,
-    fetchedAt: Long,
-    json: Json,
-): TickerProfileEntity {
+private fun DescriptionsRowDto?.toEntity(localTicker: String, fetchedAt: Long, json: Json): TickerProfileEntity {
     // `next_earnings` arrives as an object on some rows and a bare string on others;
     // narrow it once, here, so nothing downstream has to know that.
     val earnings = this?.current?.nextEarningsOrNull(json)
@@ -327,12 +360,7 @@ private fun TickerProfileEntity.toDomain(json: Json, now: Instant): TickerProfil
  * the quality gate: we do not assert a verdict we cannot prove.
  */
 @OptIn(ExperimentalTime::class)
-private fun freshnessOf(
-    updatedAt: String?,
-    ttlDays: Int?,
-    defaultTtlDays: Int,
-    now: Instant,
-): ContentFreshness {
+private fun freshnessOf(updatedAt: String?, ttlDays: Int?, defaultTtlDays: Int, now: Instant): ContentFreshness {
     val written = updatedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         ?: return ContentFreshness.UNKNOWN
     val ttl = (ttlDays ?: defaultTtlDays).coerceAtLeast(1).days
@@ -373,7 +401,9 @@ private fun TickerDto.toEntity() = TickerEntity(
     mom1m = mom1m,
     mom2m = mom2m,
     mom3m = mom3m,
-    mom12m = mom12m,
+    // Same fallback chain as upstream's writer and web client: `mom_12m ?? ann_mom`.
+    // Both are decimal fractions, so no rescaling — see TickerDto.annMom.
+    mom12m = mom12m ?: annMom,
     forwardPe = forwardPe,
     peg = peg,
     roic = roic,

@@ -3,11 +3,6 @@ package app.stockpickers.kmp.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,12 +13,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,14 +34,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.getValue
 import app.stockpickers.kmp.domain.ChartRange
 import app.stockpickers.kmp.domain.ContentFreshness
 import app.stockpickers.kmp.domain.NextEarnings
@@ -54,7 +55,6 @@ import app.stockpickers.kmp.domain.TickerProfile
 import app.stockpickers.kmp.presentation.TickerDetailSideEffect
 import app.stockpickers.kmp.presentation.TickerDetailUiState
 import app.stockpickers.kmp.presentation.TickerDetailViewModel
-import androidx.compose.runtime.LaunchedEffect
 import app.stockpickers.kmp.resources.Res
 import app.stockpickers.kmp.resources.cd_back
 import app.stockpickers.kmp.resources.detail_chart_range_unavailable
@@ -63,9 +63,9 @@ import app.stockpickers.kmp.resources.detail_forward_pe
 import app.stockpickers.kmp.resources.detail_fundamentals
 import app.stockpickers.kmp.resources.detail_momentum
 import app.stockpickers.kmp.resources.detail_not_cached
-import app.stockpickers.kmp.resources.detail_price
 import app.stockpickers.kmp.resources.detail_peg
 import app.stockpickers.kmp.resources.detail_pipeline_updated
+import app.stockpickers.kmp.resources.detail_price
 import app.stockpickers.kmp.resources.detail_profile
 import app.stockpickers.kmp.resources.detail_quality_gate
 import app.stockpickers.kmp.resources.detail_r2_fit
@@ -90,17 +90,18 @@ import org.jetbrains.compose.resources.stringResource
  * Stateful entry point. Collects state + drains the one-shot side effect channel.
  */
 @Composable
-fun TickerDetailScreen(
-    viewModel: TickerDetailViewModel,
-    onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun TickerDetailScreen(viewModel: TickerDetailViewModel, onNavigateBack: () -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // The effect keys on `viewModel` alone, so it must NOT capture onNavigateBack
+    // directly: a caller passing a fresh lambda on recomposition would leave this
+    // collector invoking the stale one for the rest of the screen's life.
+    val currentOnNavigateBack by rememberUpdatedState(onNavigateBack)
 
     LaunchedEffect(viewModel) {
         viewModel.sideEffect.collect { effect ->
             when (effect) {
-                TickerDetailSideEffect.NavigateBack -> onNavigateBack()
+                TickerDetailSideEffect.NavigateBack -> currentOnNavigateBack()
             }
         }
     }
@@ -149,6 +150,7 @@ fun TickerDetailScreen(
         val detail = state.detail
         when {
             state.isLoading -> CenteredFill { CircularProgressIndicator() }
+
             detail == null -> CenteredFill {
                 Text(
                     stringResource(Res.string.detail_not_cached),
@@ -156,6 +158,7 @@ fun TickerDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
             else -> Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -292,6 +295,7 @@ private fun PriceChartCard(
                 points = points,
                 positive = isTrendPositive(series),
             )
+
             // Soft loading: a freshly-picked, not-yet-cached range is fetching — keep the
             // chart's footprint and show a spinner rather than the empty-state text.
             isChartLoading -> Box(
@@ -300,6 +304,7 @@ private fun PriceChartCard(
             ) {
                 CircularProgressIndicator()
             }
+
             else -> Text(
                 text = stringResource(Res.string.detail_chart_range_unavailable),
                 style = MaterialTheme.typography.bodyMedium,
@@ -317,38 +322,18 @@ private val CHART_PLACEHOLDER_HEIGHT = 180.dp
  * translated, like the momentum-window labels).
  */
 @Composable
-private fun ChartRangeSelector(
-    selected: ChartRange,
-    onRangeSelected: (ChartRange) -> Unit,
-) {
-    // The same rounded track with a filled navy thumb as the board's tabs — one
-    // segmented control for the whole app, never a second style for the same job.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(SurfaceTile, CircleShape)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        ChartRange.entries.forEach { range ->
-            val active = selected == range
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(if (active) PrimaryContainer else Color.Transparent, CircleShape)
-                    .clickable { onRangeSelected(range) }
-                    .padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = range.label,
-                    style = microLabelStyle(),
-                    color = if (active) Color.White else OnSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
+private fun ChartRangeSelector(selected: ChartRange, onRangeSelected: (ChartRange) -> Unit) {
+    SegmentedControl(
+        items = ChartRange.entries,
+        selected = selected,
+        label = { it.label },
+        textStyle = microLabelStyle(),
+        onSelect = onRangeSelected,
+        // Tighter than the board's tabs: this one sits inside a card.
+        trackPadding = 3.dp,
+        itemSpacing = 3.dp,
+        itemVerticalPadding = 7.dp,
+    )
 }
 
 /**
@@ -384,8 +369,10 @@ private fun ProfileCard(profile: TickerProfile) {
             when (profile.freshness) {
                 ContentFreshness.FRESH ->
                     Pill(stringResource(Res.string.profile_fresh), PositiveTint, PositiveOnTint)
+
                 ContentFreshness.STALE ->
                     Pill(stringResource(Res.string.profile_stale), WarnTint, WarnAmber)
+
                 // No badge at all: we cannot date this text, so we claim nothing.
                 ContentFreshness.UNKNOWN -> Unit
             }
@@ -482,9 +469,13 @@ private fun earningsWhen(earnings: NextEarnings): String? = listOfNotNull(
     earnings.date,
     earnings.daysAway?.let { days ->
         when {
-            days < 0 -> null // already reported; the date alone tells the story
+            days < 0 -> null
+
+            // already reported; the date alone tells the story
             days == 0 -> stringResource(Res.string.profile_earnings_today)
+
             days == 1 -> stringResource(Res.string.profile_earnings_tomorrow)
+
             else -> stringResource(Res.string.profile_earnings_in_days, days)
         }
     },
@@ -551,7 +542,9 @@ private fun QualityGateCard(gate: QualityGate?) {
     val passes = gate?.passesFilters
     val (icon, tint, headline) = when (passes) {
         true -> Triple(Icons.Default.CheckCircle, PositiveGreen, stringResource(Res.string.quality_passes))
+
         false -> Triple(Icons.Default.Cancel, NegativeRed, stringResource(Res.string.quality_rejected))
+
         null -> Triple(
             Icons.Default.HelpOutline,
             MaterialTheme.colorScheme.onSurfaceVariant,
@@ -669,9 +662,4 @@ private fun Pill(text: String, fill: Color, content: Color) {
             .background(fill, CircleShape)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     )
-}
-
-@Composable
-private fun CenteredFill(content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }

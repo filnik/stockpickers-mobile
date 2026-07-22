@@ -1,6 +1,7 @@
 package app.stockpickers.kmp.domain
 
 import kotlinx.coroutines.flow.Flow
+import org.koin.core.annotation.Single
 
 /**
  * Per-chip counts for the leaders board under a given ranking key.
@@ -9,8 +10,7 @@ import kotlinx.coroutines.flow.Flow
  * case. The counts are NOT a slice of the leaders list: that list is truncated
  * to a top-N, these span the whole qualifying pool (see [GeoCounts]).
  */
-class GetGeoCountsUseCase(
-    private val repository: TickerRepository,
-) {
+@Single
+class GetGeoCountsUseCase(private val repository: TickerRepository) {
     operator fun invoke(sort: LeaderSort): Flow<GeoCounts> = repository.observeGeoCounts(sort)
 }

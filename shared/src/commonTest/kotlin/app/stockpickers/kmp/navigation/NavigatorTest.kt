@@ -3,10 +3,9 @@ package app.stockpickers.kmp.navigation
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import app.stockpickers.kmp.ui.navigation.Navigator
+import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.shouldBe
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 /**
  * Navigation 3 is "you own the back stack", so the back stack is a plain list and
@@ -16,15 +15,14 @@ import kotlin.test.assertTrue
  */
 class NavigatorTest {
 
-    private fun navigator(): Navigator =
-        Navigator(NavBackStack<NavKey>(AppNavKey.Leaders))
+    private fun navigator(): Navigator = Navigator(NavBackStack<NavKey>(AppNavKey.Leaders))
 
     @Test
     fun WHEN_created_THEN_leaders_is_the_root_and_back_is_unavailable() {
         val navigator = navigator()
-        assertEquals(AppNavKey.Leaders, navigator.currentKey)
-        assertFalse(navigator.canGoBack)
-        assertEquals(1, navigator.backStack.size)
+        navigator.currentKey shouldBe AppNavKey.Leaders
+        navigator.canGoBack shouldBe false
+        navigator.backStack shouldHaveSize 1
     }
 
     @Test
@@ -33,9 +31,9 @@ class NavigatorTest {
 
         navigator.goTo(AppNavKey.TickerDetail("AAPL"))
 
-        assertEquals(AppNavKey.TickerDetail("AAPL"), navigator.currentKey)
-        assertTrue(navigator.canGoBack)
-        assertEquals(2, navigator.backStack.size)
+        navigator.currentKey shouldBe AppNavKey.TickerDetail("AAPL")
+        navigator.canGoBack shouldBe true
+        navigator.backStack shouldHaveSize 2
     }
 
     @Test
@@ -45,9 +43,9 @@ class NavigatorTest {
 
         val handled = navigator.goBack()
 
-        assertTrue(handled)
-        assertEquals(AppNavKey.Leaders, navigator.currentKey)
-        assertFalse(navigator.canGoBack)
+        handled shouldBe true
+        navigator.currentKey shouldBe AppNavKey.Leaders
+        navigator.canGoBack shouldBe false
     }
 
     @Test
@@ -56,8 +54,8 @@ class NavigatorTest {
 
         val handled = navigator.goBack()
 
-        assertFalse(handled) // falls through to the platform instead of crashing
-        assertEquals(AppNavKey.Leaders, navigator.currentKey)
-        assertEquals(1, navigator.backStack.size)
+        handled shouldBe false // falls through to the platform instead of crashing
+        navigator.currentKey shouldBe AppNavKey.Leaders
+        navigator.backStack shouldHaveSize 1
     }
 }

@@ -14,14 +14,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * Fake of the domain [TickerRepository] for ViewModel tests. The real use cases
- * (`GetMomentumLeadersUseCase` etc.) are thin, so tests wire them over this fake
- * rather than mocking each — exercising VM + use-case together.
+ * Fake of the domain [TickerRepository], used to DRIVE STATE in ViewModel tests.
  *
- * The flows are settable ([leadersFlow], [countsFlow], [lastSyncedFlow]) so a test
- * can pre-seed the cache; [refreshResult] chooses whether the next refresh
- * succeeds or fails, and [lastLeadersQuery] records the sort/geo the VM last asked
- * for (to prove selection wiring).
+ * The real use cases are thin pass-throughs, so tests wire them over this fake
+ * rather than stubbing each one — which exercises the ViewModel and its use cases
+ * together. Every flow is a settable [MutableStateFlow], so standing up a world is
+ * one line instead of six stubs:
+ *
+ * ```
+ * repository.leadersFlow.value = TickerModelCreator.list(3)
+ * repository.refreshResult = RefreshResult.Failed(RefreshFailure.OFFLINE, "network down")
+ * ```
+ *
+ * It deliberately records NOTHING. Call counts and last-call arguments used to be
+ * tracked here by hand — four counters and three "last call" fields — which is
+ * precisely the bookkeeping a mocking library exists to delete. Wrap this in a
+ * Mokkery `spy` and verify against that instead.
  */
 class FakeTickerRepository : TickerRepository {
 
@@ -32,29 +40,10 @@ class FakeTickerRepository : TickerRepository {
     val profileFlow = MutableStateFlow<TickerProfile?>(null)
     val lastSyncedFlow = MutableStateFlow<Long?>(null)
 
+    /** Chooses whether the next [refresh] reports success or failure. */
     var refreshResult: RefreshResult = RefreshResult.Success
-    var refreshCount = 0
-        private set
-    var priceSeriesRefreshCount = 0
-        private set
-    /** The (ticker, range) the VM last asked to refresh — proves range wiring. */
-    var lastPriceSeriesRefresh: Pair<String, ChartRange>? = null
-        private set
-    /** The range the VM last observed the series for. */
-    var lastObservedRange: ChartRange? = null
-        private set
-    var profileRefreshCount = 0
-        private set
-    /** The ticker the VM last asked to refresh a profile for. */
-    var lastProfileRefresh: String? = null
-        private set
-    var lastLeadersQuery: Triple<LeaderSort, GeoFilter, Int>? = null
-        private set
 
-    override fun observeMomentumLeaders(sort: LeaderSort, geo: GeoFilter, limit: Int): Flow<List<Ticker>> {
-        lastLeadersQuery = Triple(sort, geo, limit)
-        return leadersFlow
-    }
+    override fun observeMomentumLeaders(sort: LeaderSort, geo: GeoFilter, limit: Int): Flow<List<Ticker>> = leadersFlow
 
     override fun observeGeoCounts(sort: LeaderSort): Flow<GeoCounts> = countsFlow
 
@@ -62,25 +51,13 @@ class FakeTickerRepository : TickerRepository {
 
     override fun observeLastSyncedAt(): Flow<Long?> = lastSyncedFlow
 
-    override suspend fun refresh(): RefreshResult {
-        refreshCount++
-        return refreshResult
-    }
+    override suspend fun refresh(): RefreshResult = refreshResult
 
-    override fun observePriceSeries(ticker: String, range: ChartRange): Flow<PriceSeries?> {
-        lastObservedRange = range
-        return priceSeriesFlow
-    }
+    override fun observePriceSeries(ticker: String, range: ChartRange): Flow<PriceSeries?> = priceSeriesFlow
 
-    override suspend fun refreshPriceSeries(ticker: String, range: ChartRange) {
-        priceSeriesRefreshCount++
-        lastPriceSeriesRefresh = ticker to range
-    }
+    override suspend fun refreshPriceSeries(ticker: String, range: ChartRange) = Unit
 
     override fun observeProfile(ticker: String): Flow<TickerProfile?> = profileFlow
 
-    override suspend fun refreshProfile(ticker: String) {
-        profileRefreshCount++
-        lastProfileRefresh = ticker
-    }
+    override suspend fun refreshProfile(ticker: String) = Unit
 }

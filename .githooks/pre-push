@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# The real gate. There is no CI on this project, so everything a pipeline would
+# normally run happens here instead — which is why minutes are acceptable at push
+# time and only seconds are acceptable at commit time.
+#
+# Install once:  git config core.hooksPath .githooks
+# Bypass:        git push --no-verify
+#   Legitimate when pushing a WIP branch you know is red. NOT legitimate for main:
+#   nothing downstream will catch what you skip.
+
+set -e
+
+echo "pre-push: format + static analysis"
+./gradlew --quiet spotlessCheck detekt
+
+# Both targets, always. The Android task is fast and proves almost nothing about
+# iOS: expect/actual gaps, Kotlin/Native API restrictions and Obj-C export problems
+# only surface when the framework actually links.
+echo "pre-push: tests (JVM + iOS simulator)"
+./gradlew --quiet :shared:testAndroidHostTest :shared:iosSimulatorArm64Test
+
+echo "pre-push: iOS framework link"
+./gradlew --quiet :shared:linkDebugFrameworkIosSimulatorArm64
+
+# Meaningful now that the goldens live in composeApp/src/test/snapshots/images and
+# are versioned. While they were written under build/ this compared against nothing.
+#
+# If this fails, LOOK AT THE DIFF before re-recording: build/outputs/roborazzi holds
+# a *_compare.png per mismatch. Re-record only once the change is intended:
+#   ./gradlew :composeApp:recordRoborazziDebug   # then commit the updated images
+echo "pre-push: screenshots"
+./gradlew --quiet :composeApp:verifyRoborazziDebug
+
+echo "pre-push: OK"
+exit 0

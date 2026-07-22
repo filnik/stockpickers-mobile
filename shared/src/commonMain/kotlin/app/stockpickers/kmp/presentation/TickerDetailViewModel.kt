@@ -20,10 +20,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.koin.core.annotation.InjectedParam
+import org.koin.core.annotation.KoinViewModel
 
 data class TickerDetailUiState(
     val detail: TickerDetail? = null,
@@ -66,8 +70,12 @@ sealed interface TickerDetailSideEffect {
  *   silently-reordered `parametersOf` argument.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@KoinViewModel
 class TickerDetailViewModel(
-    private val navKey: AppNavKey.TickerDetail,
+    // Handed over by the EntryProvider's `parametersOf(key)` rather than resolved
+    // from the graph — @InjectedParam is what tells the processor not to look for
+    // an AppNavKey.TickerDetail binding that will never exist.
+    @InjectedParam private val navKey: AppNavKey.TickerDetail,
     getTickerDetail: GetTickerDetailUseCase,
     observePriceSeries: ObservePriceSeriesUseCase,
     observeTickerProfile: ObserveTickerProfileUseCase,
@@ -78,12 +86,22 @@ class TickerDetailViewModel(
     private val _sideEffect = Channel<TickerDetailSideEffect>(Channel.BUFFERED)
     val sideEffect: Flow<TickerDetailSideEffect> = _sideEffect.receiveAsFlow()
 
-    /** The chart's currently selected time window. Drives BOTH the observed Room
-     *  series (via [flatMapLatest]) and the background refresh (in [init]). */
-    private val selectedRange = MutableStateFlow(ChartRange.DEFAULT)
+    /**
+     * The chart's own state — the one part of this screen Room does NOT own. Window
+     * and loader travel together because [selectRange] moves both at once: as two
+     * separate flows they were two emissions, and the UI could render the frame in
+     * between, flashing the "no data" placeholder for a range whose fetch had not
+     * been marked in flight yet.
+     */
+    private val chartState = MutableStateFlow(ChartUiState())
 
-    /** True while the selected range is being refreshed from Yahoo. */
-    private val isChartLoading = MutableStateFlow(false)
+    /**
+     * Range changes only. Both consumers below re-run whole operations per range — a
+     * Room re-subscription and a network fetch — and must NOT see the loader flipping;
+     * [init]'s collector sets that flag itself, so without `distinctUntilChanged` it
+     * would retrigger on its own write and never stop.
+     */
+    private val selectedRange: Flow<ChartRange> = chartState.map { it.range }.distinctUntilChanged()
 
     /**
      * Driven entirely by Room (the scanner row, the cached price series and the cached
@@ -92,26 +110,25 @@ class TickerDetailViewModel(
      * that range (network-free), while the fetch for it runs in [init].
      *
      * EVERY source here must emit without waiting for the network. `combine` produces
-     * nothing until all five have emitted at least once, so a flow that only emitted
+     * nothing until all four have emitted at least once, so a flow that only emitted
      * after a fetch would pin the whole screen on `isLoading = true` — forever, offline.
-     * All of these are Room flows, which emit null immediately for an absent row; that
-     * is the property the screen's loading state rests on, and it is what
-     * `TickerDetailViewModelTest` guards.
+     * The three Room flows emit null immediately for an absent row and [chartState]
+     * starts from a default; that is the property the screen's loading state rests on,
+     * and it is what `TickerDetailViewModelTest` guards.
      */
     val uiState: StateFlow<TickerDetailUiState> = combine(
         getTickerDetail(navKey.ticker),
         selectedRange.flatMapLatest { range -> observePriceSeries(navKey.ticker, range) },
         observeTickerProfile(navKey.ticker),
-        selectedRange,
-        isChartLoading,
-    ) { detail, priceSeries, profile, range, chartLoading ->
+        chartState,
+    ) { detail, priceSeries, profile, chart ->
         TickerDetailUiState(
             detail = detail,
             priceSeries = priceSeries,
             profile = profile,
-            selectedRange = range,
+            selectedRange = chart.range,
             isLoading = false,
-            isChartLoading = chartLoading,
+            isChartLoading = chart.isLoading,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -127,11 +144,11 @@ class TickerDetailViewModel(
         // on its cached (or empty) state.
         viewModelScope.launch {
             selectedRange.collectLatest { range ->
-                isChartLoading.value = true
+                chartState.value = chartState.value.copy(isLoading = true)
                 try {
                     refreshPriceSeries(navKey.ticker, range)
                 } finally {
-                    isChartLoading.value = false
+                    chartState.value = chartState.value.copy(isLoading = false)
                 }
             }
         }
@@ -157,14 +174,16 @@ class TickerDetailViewModel(
      * range so re-tapping neither re-fetches nor flickers the loader.
      */
     fun selectRange(range: ChartRange) {
-        if (selectedRange.value == range) return
-        // Flip the loader up-front (synchronously) so the range switch never shows a
-        // frame of the "no data" placeholder before the collector reacts.
-        isChartLoading.value = true
-        selectedRange.value = range
+        if (chartState.value.range == range) return
+        // Range and loader in ONE emission, synchronously: the switch must never show
+        // a frame of the "no data" placeholder before the collector below reacts.
+        chartState.value = ChartUiState(range = range, isLoading = true)
     }
 
     fun onBackClick() {
         viewModelScope.launch { _sideEffect.send(TickerDetailSideEffect.NavigateBack) }
     }
+
+    /** The chart state this ViewModel owns, as opposed to what it observes from Room. */
+    private data class ChartUiState(val range: ChartRange = ChartRange.DEFAULT, val isLoading: Boolean = false)
 }

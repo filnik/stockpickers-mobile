@@ -1,6 +1,7 @@
 package app.stockpickers.kmp.domain
 
 import kotlinx.coroutines.flow.Flow
+import org.koin.core.annotation.Single
 
 /**
  * One ticker's written profile from the cache — offline-first, no network. The
@@ -9,9 +10,7 @@ import kotlinx.coroutines.flow.Flow
  * Emits null for the many symbols upstream has no profile for, so the detail screen
  * simply omits the card. That is the ordinary outcome, not a failure.
  */
-class ObserveTickerProfileUseCase(
-    private val repository: TickerRepository,
-) {
-    operator fun invoke(ticker: String): Flow<TickerProfile?> =
-        repository.observeProfile(ticker)
+@Single
+class ObserveTickerProfileUseCase(private val repository: TickerRepository) {
+    operator fun invoke(ticker: String): Flow<TickerProfile?> = repository.observeProfile(ticker)
 }

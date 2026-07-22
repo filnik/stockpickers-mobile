@@ -3,6 +3,7 @@ package app.stockpickers.kmp.ui.navigation
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import app.stockpickers.kmp.navigation.AppNavKey
+import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
 import app.stockpickers.kmp.presentation.TickerDetailViewModel
 import app.stockpickers.kmp.ui.MomentumLeadersScreen
 import app.stockpickers.kmp.ui.TickerDetailScreen
@@ -20,7 +21,9 @@ import org.koin.core.parameter.parametersOf
  */
 fun EntryProviderScope<NavKey>.appEntries(navigator: Navigator) {
     entry<AppNavKey.Leaders> {
+        val viewModel: MomentumLeadersViewModel = koinViewModel()
         MomentumLeadersScreen(
+            viewModel = viewModel,
             onTickerClick = { ticker -> navigator.goTo(AppNavKey.TickerDetail(ticker)) },
         )
     }

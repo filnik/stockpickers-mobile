@@ -11,6 +11,13 @@ room = "3.0.0"
 sqlite = "2.6.2"
 ktor = "3.5.1"
 koin = "4.2.2"
+# Koin Annotations. NOT the old `koin-ksp-compiler`, which is frozen at
+# 2.3.2-Beta1 and never followed koin-annotations into the 4.2.x line: the
+# processor is now a K2 COMPILER PLUGIN (`io.insert-koin.compiler.plugin`).
+# 1.0.2 is the floor — 1.0.0 breaks Kotlin/Native with duplicate hint
+# declarations, and 1.0.1 is what fixed a ClassCastException on Kotlin 2.4.0.
+koinAnnotations = "4.2.2"
+koinCompilerPlugin = "1.0.2"
 serialization = "1.11.0"
 coroutines = "1.11.0"
 datetime = "0.8.0"
@@ -26,11 +33,36 @@ vico = "2.5.2"
 
 # --- Test ---
 turbine = "1.2.1"
+# Kotest ASSERTIONS ONLY — the runner stays kotlin.test. The iOS variant pulls no
+# framework engine, so the matchers travel to Native while `@Test` stays as-is.
+# (Truth was considered and is impossible here: it is a Java library on Guava and
+# publishes zero klibs.)
+kotest = "6.2.3"
+# Mokkery — mocking that works on Kotlin/Native, which MockK cannot: MockK is built
+# on JVM bytecode instrumentation and `mockk-common` has been frozen since 2022.
+# It is a COMPILER PLUGIN, so it is version-locked: 3.4.x requires Kotlin 2.4.0.
+mokkery = "3.4.2"
 # kotlinx-coroutines-test tracks the coroutines version (see `coroutines` above).
 roborazzi = "1.68.0"
 robolectric = "4.14.1"
 junit = "4.13.2"
 androidxTest = "1.6.1"
+
+# --- Static analysis ---
+# Spotless rather than ktlint-gradle: it targets FILE GLOBS instead of
+# `KotlinProjectExtension.sourceSets`, so it is structurally immune to the
+# plugin-detection breakage AGP 9 + KMP caused for source-set-driven formatters.
+# It also needs no per-module wiring — one block at the root covers both modules.
+spotless = "8.8.0"
+ktlint = "1.8.0"
+# Compose-specific ktlint rules, built against Kotlin 2.4.0 / ktlint 1.8.0 —
+# an exact match for this project's pins.
+ktlintComposeRules = "0.6.3"
+# detekt 2.x, published under the NEW `dev.detekt` plugin+group id. The old
+# `io.gitlab.arturbosch.detekt` 1.23.x line stops at Kotlin 2.0.21 and floods a
+# Kotlin 2.4 codebase with false positives, so it is not an option here. 2.0 is
+# still alpha — accepted deliberately, exactly as Nav3 is pinned to an alpha.
+detekt = "2.0.0-alpha.5"
 
 # Navigation 3.
 # `androidx.navigation3:navigation3-ui` publishes ONLY android + *stubs* variants —
@@ -64,10 +96,14 @@ sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sql
 # needs the jvm-classified artifact to run the real DAO SQL. See androidHostTest.
 sqlite-bundled-jvm = { module = "androidx.sqlite:sqlite-bundled-jvm", version.ref = "sqlite" }
 
-# --- Koin (classic DSL, no annotations/KSP) ---
+# --- Koin ---
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
 koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
+# Versioned in lockstep with koin-core, and publishes real iosArm64 /
+# iosSimulatorArm64 klibs. @InjectedParam and @Provided actually live in a separate
+# `koin-core-annotations` artifact (same package) that arrives transitively.
+koin-annotations = { module = "io.insert-koin:koin-annotations", version.ref = "koinAnnotations" }
 
 # --- kotlinx ---
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
@@ -101,21 +137,26 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 # Fake HTTP transport for SupabaseScannerApi (which is a final class): a MockEngine
 # is the least-invasive "fake API" — no production interface extraction needed.
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
+# Matchers only — `kotest-assertions-core`, NOT the runner or the spec framework.
+kotest-assertions = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 
-# --- Test (JVM only: androidHostTest — Room real SQL + Roborazzi snapshots) ---
+# --- Test (JVM only: :composeApp's Roborazzi snapshots). NOT used by :shared's
+# androidHostTest, which is deliberately framework-free — see docs/TESTING.md. ---
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTest" }
 roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
 roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
-roborazzi-rule = { module = "io.github.takahirom.roborazzi:roborazzi-junit-rule", version.ref = "roborazzi" }
+
+# --- Static analysis (resolved by Spotless as a formatter dependency, not on any
+# compile classpath — hence a `libraries` entry consumed via ktlint's ruleset hook) ---
+ktlint-composeRules = { module = "io.nlopez.compose.rules:ktlint", version.ref = "ktlintComposeRules" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
 # AGP 9: KMP modules use this plugin; `com.android.library` is incompatible with KMP now.
 androidKmpLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
-kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "compose" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
@@ -126,3 +167,11 @@ room = { id = "androidx.room3", version.ref = "room" }
 skie = { id = "co.touchlab.skie", version.ref = "skie" }
 # Roborazzi — JVM/Robolectric screenshot tests. Hooks the androidHostTest task.
 roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
+# Spotless — formatting only, applied ONCE at the root (see the version comment).
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+# detekt — bug hunting, NOT style (style is ktlint's job). Also root-only.
+detekt = { id = "dev.detekt", version.ref = "detekt" }
+# Koin Annotations processor — a Kotlin compiler plugin, not KSP. KSP stays for Room.
+koinCompiler = { id = "io.insert-koin.compiler.plugin", version.ref = "koinCompilerPlugin" }
+# Mokkery — KMP mocking. Compiler plugin; adds its own runtime deps automatically.
+mokkery = { id = "dev.mokkery", version.ref = "mokkery" }

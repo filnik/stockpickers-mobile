@@ -1,6 +1,7 @@
 package app.stockpickers.kmp.domain
 
 import kotlinx.coroutines.flow.Flow
+import org.koin.core.annotation.Single
 
 /**
  * Leaders for a given ranking key + country chip, straight from the local cache.
@@ -10,9 +11,8 @@ import kotlinx.coroutines.flow.Flow
  * filtering and sorting happen in SQLite over the whole cached universe rather
  * than in memory.
  */
-class GetMomentumLeadersUseCase(
-    private val repository: TickerRepository,
-) {
+@Single
+class GetMomentumLeadersUseCase(private val repository: TickerRepository) {
     operator fun invoke(
         sort: LeaderSort,
         geo: GeoFilter = GeoFilter.ALL,

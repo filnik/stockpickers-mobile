@@ -8,22 +8,32 @@ import app.stockpickers.kmp.domain.GetGeoCountsUseCase
 import app.stockpickers.kmp.domain.GetMomentumLeadersUseCase
 import app.stockpickers.kmp.domain.LeaderSort
 import app.stockpickers.kmp.domain.ObserveLastSyncedAtUseCase
+import app.stockpickers.kmp.domain.RefreshFailure
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.domain.RefreshTickersUseCase
+import app.stockpickers.kmp.domain.TickerRepository
 import app.stockpickers.kmp.fake.FakeTickerRepository
 import app.stockpickers.kmp.modelcreators.TickerModelCreator
 import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
+import dev.mokkery.answering.returns
+import dev.mokkery.matcher.any
+import dev.mokkery.spy
+import dev.mokkery.verify
+import dev.mokkery.verify.VerifyMode.Companion.exactly
+import dev.mokkery.verifySuspend
+import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MomentumLeadersViewModelTest : ViewModelTest() {
 
-    private val repository = FakeTickerRepository()
+    // The fake drives state; the spy around it records the calls. Setup goes through
+    // `fake` (settable flows), verification through `repository` (the spy).
+    private val fake = FakeTickerRepository()
+    private val repository: TickerRepository = spy<TickerRepository>(fake)
 
     private fun createViewModel() = MomentumLeadersViewModel(
         getMomentumLeaders = GetMomentumLeadersUseCase(repository),
@@ -34,46 +44,53 @@ class MomentumLeadersViewModelTest : ViewModelTest() {
 
     @Test
     fun WHEN_cache_emits_THEN_state_moves_from_loading_to_data() = runTest(testDispatcher) {
-        repository.leadersFlow.value = TickerModelCreator.list(3)
+        fake.leadersFlow.value = TickerModelCreator.list(3)
         val viewModel = createViewModel()
 
         // Before anyone collects, WhileSubscribed keeps the upstream cold, so the
         // exposed value is the loading initialValue. (Under UnconfinedTestDispatcher
         // the upstream settles synchronously on subscribe, so this loading frame is
         // conflated away for a collector — it must be read here, not via awaitItem.)
-        assertTrue(viewModel.uiState.value.isLoading)
+        viewModel.uiState.value.isLoading shouldBe true
 
         viewModel.uiState.test {
             val loaded = awaitUntil { !it.isLoading }
-            assertEquals(3, loaded.leaders.size)
-            assertFalse(loaded.isEmpty)
+            loaded.leaders shouldHaveSize 3
+            loaded.isEmpty shouldBe false
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
     fun WHEN_selectSort_and_selectGeo_THEN_each_axis_preserves_the_other() = runTest(testDispatcher) {
-        repository.leadersFlow.value = TickerModelCreator.list(2)
+        fake.leadersFlow.value = TickerModelCreator.list(2)
         val viewModel = createViewModel()
 
         viewModel.uiState.test {
             awaitUntil { !it.isLoading }.let {
-                assertEquals(LeaderSort.STRENGTH, it.sort)
-                assertEquals(GeoFilter.ALL, it.geo)
+                it.sort shouldBe LeaderSort.STRENGTH
+                it.geo shouldBe GeoFilter.ALL
             }
 
             viewModel.selectSort(LeaderSort.ONE_MONTH)
-            assertEquals(GeoFilter.ALL, awaitUntil { it.sort == LeaderSort.ONE_MONTH }.geo)
+            awaitUntil { it.sort == LeaderSort.ONE_MONTH }.geo shouldBe GeoFilter.ALL
 
             viewModel.selectGeo(GeoFilter.ASIA)
-            assertEquals(LeaderSort.ONE_MONTH, awaitUntil { it.geo == GeoFilter.ASIA }.sort)
+            awaitUntil { it.geo == GeoFilter.ASIA }.sort shouldBe LeaderSort.ONE_MONTH
 
             cancelAndIgnoreRemainingEvents()
         }
 
-        // The DAO query reflects BOTH selections, not just the last one set.
-        assertEquals(LeaderSort.ONE_MONTH, repository.lastLeadersQuery?.first)
-        assertEquals(GeoFilter.ASIA, repository.lastLeadersQuery?.second)
+        // The DAO query reflects BOTH selections, not just the last one set — and the
+        // limit is a live contract too: the board shows a top-N, and silently widening
+        // it would render the whole ~1800-row universe with no error.
+        verify {
+            repository.observeMomentumLeaders(
+                LeaderSort.ONE_MONTH,
+                GeoFilter.ASIA,
+                GetMomentumLeadersUseCase.DEFAULT_LIMIT,
+            )
+        }
     }
 
     /**
@@ -82,16 +99,36 @@ class MomentumLeadersViewModelTest : ViewModelTest() {
      */
     @Test
     fun WHEN_refresh_fails_THEN_error_is_set_but_leaders_are_kept() = runTest(testDispatcher) {
-        repository.leadersFlow.value = TickerModelCreator.list(4)
-        repository.refreshResult = RefreshResult.Failed("network down")
+        fake.leadersFlow.value = TickerModelCreator.list(4)
+        fake.refreshResult = RefreshResult.Failed(RefreshFailure.OFFLINE, "network down")
         val viewModel = createViewModel() // init { refresh() } runs and fails
 
         viewModel.uiState.test {
             val state = awaitUntil { it.errorMessage != null }
-            assertEquals("network down", state.errorMessage)
-            assertTrue(state.isOffline)
-            assertEquals(4, state.leaders.size) // cache survives the failed refresh
-            assertFalse(state.isFatal) // we have cached data, so no fatal takeover
+            state.errorMessage shouldBe "network down"
+            state.isOffline shouldBe true
+            state.leaders shouldHaveSize 4 // cache survives the failed refresh
+            state.isFatal shouldBe false // we have cached data, so no fatal takeover
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    /**
+     * The offline badge must mean offline. A server-side failure is still stale
+     * cache, but blaming the user's connection for it would send them chasing a
+     * problem that is not theirs.
+     */
+    @Test
+    fun WHEN_the_failure_is_not_offline_THEN_only_isStale_is_set() = runTest(testDispatcher) {
+        fake.leadersFlow.value = TickerModelCreator.list(4)
+        fake.refreshResult = RefreshResult.Failed(RefreshFailure.SERVER, "Supabase returned 500")
+        val viewModel = createViewModel()
+
+        viewModel.uiState.test {
+            val state = awaitUntil { it.errorMessage != null }
+            state.isStale shouldBe true
+            state.isOffline shouldBe false
+            state.refreshFailure shouldBe RefreshFailure.SERVER
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -99,6 +136,7 @@ class MomentumLeadersViewModelTest : ViewModelTest() {
     @Test
     fun WHEN_constructed_THEN_it_refreshes_once_on_init() = runTest(testDispatcher) {
         createViewModel()
-        assertEquals(1, repository.refreshCount) // the init { refresh() } fired exactly once
+
+        verifySuspend(exactly(1)) { repository.refresh() } // init { refresh() } fired once, not twice
     }
 }

@@ -12,6 +12,34 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
     alias(libs.plugins.skie)
+    alias(libs.plugins.koinCompiler)
+    alias(libs.plugins.mokkery)
+}
+
+// Koin Annotations' processor is a K2 compiler plugin, so unlike Room it needs no
+// per-target `ksp*` wiring — one plugin covers android + iosArm64 + iosSimulatorArm64.
+koinCompiler {
+    // Verifies at COMPILE time that every dependency in the graph can be resolved:
+    // `e: [Koin][KOIN-D001] Missing dependency: ...`. This replaces the runtime
+    // checkModules() test the classic DSL needed, and it matters most on iOS, where a
+    // missing binding otherwise surfaces as a crash inside ComposeUIViewController
+    // with a nearly useless stack trace.
+    compileSafety = true
+
+    // OFF — and NOT because it conflicts with compileSafety. Both CAN be true.
+    //
+    // strictSafety is not a compiler option at all (the plugin passes only
+    // compileSafety / skipDefaultValues / unsafeDslChecks / *Logs / aiAssist), so it
+    // adds NO extra checking. Its sole effect is:
+    //     upToDateWhen { !(strictSafety && compileSafety) }   // and the same for cacheIf
+    // so the PAIR being true makes this module never up-to-date and never cacheable,
+    // and the graph check re-runs even when Gradle knows nothing changed.
+    //
+    // Measured here: a no-op `compileKotlinIosSimulatorArm64` goes from ~0.6s to
+    // ~18-29s. The graph is derived from this module's own sources, so "nothing
+    // changed" already implies the graph cannot have changed — those re-runs buy
+    // nothing. Turn it on only to debug a suspected stale-graph result.
+    strictSafety = false
 }
 
 // --- Secrets: read from local.properties (git-ignored) and generate a Kotlin source ---
@@ -114,6 +142,7 @@ kotlin {
                 implementation(libs.sqlite.bundled)
 
                 implementation(libs.koin.core)
+                implementation(libs.koin.annotations)
                 implementation(libs.koin.compose.viewmodel)
 
                 implementation(libs.lifecycle.viewmodel)
@@ -150,6 +179,7 @@ kotlin {
                 implementation(libs.turbine)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.ktor.client.mock)
+                implementation(libs.kotest.assertions)
             }
         }
         // JVM-only test that needs a real SQLite engine for the DAO SQL.
@@ -157,11 +187,11 @@ kotlin {
         // `BundledSQLiteDriver` loads on the host JVM. (Roborazzi snapshot tests live
         // in :composeApp — a classic app module where composeResources can be staged
         // onto the test classpath; see that module's ScreenSnapshotTest.)
+        // Deliberately Robolectric-free: `ScannerDaoTest` is plain kotlin.test over a
+        // real in-memory SQLite. Having Robolectric on this classpath would contradict
+        // the "framework-free :shared tests" rule and invite someone to reach for it.
         getByName("androidHostTest").dependencies {
             implementation(libs.sqlite.bundled.jvm)
-            implementation(libs.junit)
-            implementation(libs.robolectric)
-            implementation(libs.androidx.test.core)
         }
     }
 }

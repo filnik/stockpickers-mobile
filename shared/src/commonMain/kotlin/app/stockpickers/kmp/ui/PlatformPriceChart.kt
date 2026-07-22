@@ -20,8 +20,4 @@ import app.stockpickers.kmp.domain.PricePoint
  * for no gain.
  */
 @Composable
-internal expect fun PlatformPriceChart(
-    points: List<PricePoint>,
-    positive: Boolean,
-    modifier: Modifier = Modifier,
-)
+internal expect fun PlatformPriceChart(points: List<PricePoint>, positive: Boolean, modifier: Modifier = Modifier)

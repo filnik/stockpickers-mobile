@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# Formats the staged Kotlin files, then re-stages them.
+#
+# This project has no CI, so the hooks ARE the quality gate. This one is kept to
+# seconds on purpose: a slow pre-commit is a pre-commit people bypass.
+#
+# Install once:  git config core.hooksPath .githooks
+# Bypass:        git commit --no-verify   (fine for a WIP commit on your own branch)
+
+set -e
+
+staged_kt=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.kts?$' || true)
+[ -z "$staged_kt" ] && exit 0
+
+# Partial staging and auto-formatting do not mix: spotlessApply rewrites the whole
+# working-tree file, so re-staging it would sweep in the very changes you chose to
+# leave out. Detect that case and hand it back rather than silently widening the
+# commit.
+unstaged=$(git diff --name-only)
+conflict=""
+for f in $staged_kt; do
+    for u in $unstaged; do
+        [ "$f" = "$u" ] && conflict="$conflict $f"
+    done
+done
+
+if [ -n "$conflict" ]; then
+    echo "pre-commit: these files are staged but also have unstaged edits:"
+    for f in $conflict; do echo "  $f"; done
+    echo
+    echo "Auto-formatting them would stage changes you deliberately left out."
+    echo "Run './gradlew spotlessApply' yourself, stage what you want, and commit again."
+    exit 1
+fi
+
+./gradlew --quiet spotlessApply
+echo "$staged_kt" | xargs git add
+exit 0

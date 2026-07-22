@@ -8,6 +8,7 @@ import app.stockpickers.kmp.domain.GetGeoCountsUseCase
 import app.stockpickers.kmp.domain.GetMomentumLeadersUseCase
 import app.stockpickers.kmp.domain.LeaderSort
 import app.stockpickers.kmp.domain.ObserveLastSyncedAtUseCase
+import app.stockpickers.kmp.domain.RefreshFailure
 import app.stockpickers.kmp.domain.RefreshResult
 import app.stockpickers.kmp.domain.RefreshTickersUseCase
 import app.stockpickers.kmp.domain.Ticker
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.koin.core.annotation.KoinViewModel
 
 data class MomentumLeadersUiState(
     /** Ranking key. "Forza" (clenow) is the default, mirroring the web's first tab. */
@@ -32,18 +34,26 @@ data class MomentumLeadersUiState(
     /** True until the first cache emission arrives. */
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
-    /** Last refresh failed → we are serving cache only. */
-    val isOffline: Boolean = false,
+    /** Why the last refresh failed, or null if it succeeded — we are serving cache only. */
+    val refreshFailure: RefreshFailure? = null,
     val lastSyncedAt: Long? = null,
     val errorMessage: String? = null,
 ) {
     /** Nothing cached AND nothing loading → genuine empty state. */
     val isEmpty: Boolean get() = !isLoading && leaders.isEmpty()
+
+    /** Serving cache because the last sync failed, for WHATEVER reason. */
+    val isStale: Boolean get() = refreshFailure != null
+
+    /** Strictly "we could not reach the server" — never a stand-in for [isStale]. */
+    val isOffline: Boolean get() = refreshFailure == RefreshFailure.OFFLINE
+
     /** Never synced and no data: the only case where an error should take over the screen. */
     val isFatal: Boolean get() = isEmpty && lastSyncedAt == null && errorMessage != null
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@KoinViewModel
 class MomentumLeadersViewModel(
     private val getMomentumLeaders: GetMomentumLeadersUseCase,
     private val getGeoCounts: GetGeoCountsUseCase,
@@ -75,7 +85,7 @@ class MomentumLeadersViewModel(
             leaders = leaders,
             isLoading = false,
             isRefreshing = refresh.isRefreshing,
-            isOffline = refresh.isOffline,
+            refreshFailure = refresh.failure,
             lastSyncedAt = lastSyncedAt,
             errorMessage = refresh.lastFailure,
         )
@@ -103,32 +113,30 @@ class MomentumLeadersViewModel(
             refreshState.value = refreshState.value.copy(isRefreshing = true)
             refreshState.value = when (val result = refreshTickers()) {
                 is RefreshResult.Success ->
-                    RefreshUiState(isRefreshing = false, isOffline = false, lastFailure = null)
+                    RefreshUiState(isRefreshing = false, failure = null, lastFailure = null)
+
                 is RefreshResult.Failed ->
-                    RefreshUiState(isRefreshing = false, isOffline = true, lastFailure = result.message)
+                    RefreshUiState(isRefreshing = false, failure = result.reason, lastFailure = result.message)
             }
         }
     }
 
     /**
-     * Dismisses the one-shot error message only. [RefreshUiState.isOffline] is
-     * deliberately NOT cleared here: the banner is transient, but the offline
-     * badge must stay up until a sync actually succeeds.
+     * Dismisses the one-shot error message only. [RefreshUiState.failure] is
+     * deliberately NOT cleared here: the banner is transient, but the badge must
+     * stay up until a sync actually succeeds.
      */
     fun dismissError() {
         refreshState.value = refreshState.value.copy(lastFailure = null)
     }
 
     /** Tab + chip travel together so the board is ONE flatMapLatest, not two. */
-    private data class Selection(
-        val sort: LeaderSort = LeaderSort.STRENGTH,
-        val geo: GeoFilter = GeoFilter.ALL,
-    )
+    private data class Selection(val sort: LeaderSort = LeaderSort.STRENGTH, val geo: GeoFilter = GeoFilter.ALL)
 
     private data class RefreshUiState(
         val isRefreshing: Boolean = false,
         /** Sticky: only a successful refresh clears it. */
-        val isOffline: Boolean = false,
+        val failure: RefreshFailure? = null,
         /** One-shot, for the snackbar. */
         val lastFailure: String? = null,
     )
