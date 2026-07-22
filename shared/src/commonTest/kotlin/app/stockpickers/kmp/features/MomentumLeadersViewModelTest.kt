@@ -15,8 +15,6 @@ import app.stockpickers.kmp.domain.TickerRepository
 import app.stockpickers.kmp.fake.FakeTickerRepository
 import app.stockpickers.kmp.modelcreators.TickerModelCreator
 import app.stockpickers.kmp.presentation.MomentumLeadersViewModel
-import dev.mokkery.answering.returns
-import dev.mokkery.matcher.any
 import dev.mokkery.spy
 import dev.mokkery.verify
 import dev.mokkery.verify.VerifyMode.Companion.exactly

@@ -15,6 +15,7 @@ import app.stockpickers.kmp.modelcreators.NextEarningsModelCreator
 import app.stockpickers.kmp.modelcreators.TickerProfileModelCreator
 import app.stockpickers.kmp.navigation.AppNavKey
 import app.stockpickers.kmp.presentation.TickerDetailViewModel
+import dev.mokkery.matcher.any
 import dev.mokkery.spy
 import dev.mokkery.verify.VerifyMode.Companion.exactly
 import dev.mokkery.verifySuspend
