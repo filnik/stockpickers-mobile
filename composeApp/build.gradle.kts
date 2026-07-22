@@ -50,6 +50,21 @@ kotlin {
     }
 }
 
+// The snapshot suite runs all 19 tests in ONE JVM (Gradle's default forkEvery = 0),
+// and Robolectric leaks across tests in a shared JVM — Activities stay reachable from
+// WindowManagerGlobal (robolectric#8395), and each Roborazzi capture adds a
+// full-screen bitmap. That accumulation overruns Gradle's default 512MB worker, and
+// the JVM dies with a bare `java.io.EOFException` — no failing test, just a dead
+// worker. Near the limit it is intermittent: it may pass once and fail the next run.
+//
+// This is the ONE test-JVM knob that earns its place. `forkEvery` (which would bound
+// the leak by restarting the JVM) is deliberately NOT set: forking re-pays
+// Robolectric's sandbox init per fork and made the suite far slower. One JVM plus a
+// heap that covers the whole run is the faster trade.
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "1g"
+}
+
 dependencies {
     implementation(projects.shared)
     implementation(compose.runtime)
