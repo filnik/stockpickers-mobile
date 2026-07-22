@@ -5,15 +5,6 @@
     <string name="sort_strength">Forza</string>
     <string name="geo_all">Tutti</string>
 
-    <string name="sync_syncing">Sincronizzazione…</string>
-    <string name="sync_never">Mai sincronizzato</string>
-    <string name="sync_last">Ultima sincronizzazione %1$s</string>
-
-    <string name="time_just_now">proprio ora</string>
-    <string name="time_minutes_ago">%1$d min fa</string>
-    <string name="time_hours_ago">%1$d h fa</string>
-    <string name="time_days_ago">%1$d g fa</string>
-
     <string name="empty_all">Nessun leader per %1$s</string>
     <string name="empty_geo">Nessun leader %1$s per %2$s</string>
 

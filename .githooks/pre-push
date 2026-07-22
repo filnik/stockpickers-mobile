@@ -23,21 +23,21 @@ echo "pre-push: tests (JVM + iOS simulator)"
 echo "pre-push: iOS framework link"
 ./gradlew --quiet :shared:linkDebugFrameworkIosSimulatorArm64
 
-# TEMPORARILY DISABLED. The committed goldens predate the LocalInspectionMode freeze
-# applied to the four spinner snapshots, so this step fails on those four for a code
-# change that is intended. Re-enable once the pending re-record has landed:
-#   ./gradlew :composeApp:recordRoborazziDebug   # then commit the updated images
-#
-# Nothing else covers these screens, so while this is commented out a layout
-# regression reaches main unchallenged. It is a loan, not a decision.
-#
 # Meaningful now that the goldens live in composeApp/src/test/snapshots/images and
 # are versioned. While they were written under build/ this compared against nothing.
 #
+# ~15 seconds for 19 snapshots. It once took 33 MINUTES, and the whole difference is
+# that animated components now draw themselves still under LocalInspectionMode
+# instead of spinning Robolectric's frame pump. If this creeps back into minutes,
+# that is the regression — profile the test JVM with `jstack` and read
+# docs/SNAPSHOT_TESTING.md before touching heap or fork settings, which look like
+# the answer and are not.
+#
 # If this fails, LOOK AT THE DIFF before re-recording: build/outputs/roborazzi holds
-# a *_compare.png per mismatch. Re-record only once the change is intended.
-# echo "pre-push: screenshots"
-# ./gradlew --quiet :composeApp:verifyRoborazziDebug
+# a *_compare.png per mismatch. Re-record only once the change is intended:
+#   ./gradlew :composeApp:recordRoborazziDebug   # then commit the updated images
+echo "pre-push: screenshots"
+./gradlew --quiet :composeApp:verifyRoborazziDebug
 
 echo "pre-push: OK"
 exit 0

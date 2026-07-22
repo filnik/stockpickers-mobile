@@ -8,7 +8,7 @@ kotlin = "2.4.0"
 compose = "1.11.1"
 ksp = "2.3.10"
 room = "3.0.0"
-sqlite = "2.6.2"
+sqlite = "2.7.0"
 ktor = "3.5.1"
 koin = "4.2.2"
 # Koin Annotations. NOT the old `koin-ksp-compiler`, which is frozen at
@@ -43,10 +43,10 @@ kotest = "6.2.3"
 # It is a COMPILER PLUGIN, so it is version-locked: 3.4.x requires Kotlin 2.4.0.
 mokkery = "3.4.2"
 # kotlinx-coroutines-test tracks the coroutines version (see `coroutines` above).
-roborazzi = "1.68.0"
-robolectric = "4.14.1"
+roborazzi = "1.70.0"
+robolectric = "4.16.1"
 junit = "4.13.2"
-androidxTest = "1.6.1"
+androidxTest = "1.7.0"
 
 # --- Static analysis ---
 # Spotless rather than ktlint-gradle: it targets FILE GLOBS instead of
@@ -70,8 +70,8 @@ detekt = "2.0.0-alpha.5"
 # `androidx.navigation3:navigation3-runtime` IS multiplatform (iosArm64 etc.) and
 # is pulled in transitively by the JetBrains artifact; don't declare it twice.
 navigation3 = "1.2.0-alpha02"
-androidxActivityCompose = "1.11.0"
-androidxCoreKtx = "1.17.0"
+androidxActivityCompose = "1.13.0"
+androidxCoreKtx = "1.19.0"
 
 # compileSdk 37 (not 36): androidx.lifecycle 2.11.0 ships AAR metadata demanding
 # compileSdk >= 37, so 36 fails `checkDebugAarMetadata`. targetSdk stays at 36.

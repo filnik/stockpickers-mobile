@@ -25,28 +25,27 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,14 +75,6 @@ import app.stockpickers.kmp.resources.snackbar_refresh_failed_cached
 import app.stockpickers.kmp.resources.snackbar_server_cached
 import app.stockpickers.kmp.resources.sort_strength
 import app.stockpickers.kmp.resources.state_error
-import app.stockpickers.kmp.resources.sync_last
-import app.stockpickers.kmp.resources.sync_never
-import app.stockpickers.kmp.resources.sync_syncing
-import app.stockpickers.kmp.resources.time_days_ago
-import app.stockpickers.kmp.resources.time_hours_ago
-import app.stockpickers.kmp.resources.time_just_now
-import app.stockpickers.kmp.resources.time_minutes_ago
-import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -158,16 +149,32 @@ fun MomentumLeadersScreen(
             SortSegments(selected = state.sort, onSortSelected = onSortSelected)
             GeoFilterChips(selected = state.geo, counts = state.counts, onGeoSelected = onGeoSelected)
             if (state.isRefreshing) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+                BusyLinearIndicator(Modifier.fillMaxWidth().height(2.dp))
             }
 
+            val pullState = rememberPullToRefreshState()
             PullToRefreshBox(
                 isRefreshing = state.isRefreshing,
                 onRefresh = onRefresh,
                 modifier = Modifier.fillMaxSize(),
+                state = pullState,
+                // Same rule as BusyCircularIndicator: this indicator animates too, and
+                // under LocalInspectionMode that animation would spin the frame clock
+                // instead of rendering. Dropped rather than frozen — a pull indicator
+                // at rest draws nothing anyway, and the refreshing state is already on
+                // screen as the bar above.
+                indicator = {
+                    if (!LocalInspectionMode.current) {
+                        PullToRefreshDefaults.Indicator(
+                            state = pullState,
+                            isRefreshing = state.isRefreshing,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
+                },
             ) {
                 when {
-                    state.isLoading -> CenteredFill { CircularProgressIndicator() }
+                    state.isLoading -> CenteredFill { BusyCircularIndicator() }
 
                     state.isFatal -> CenteredFill {
                         ErrorContent(state.errorMessage.orEmpty(), onRefresh)
@@ -217,14 +224,12 @@ private fun BoardHeader(state: MomentumLeadersUiState, onRefresh: () -> Unit) = 
         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stringResource(Res.string.leaders_title),
-                style = MaterialTheme.typography.headlineSmall,
-                color = Primary,
-            )
-            SyncStatusLabel(state)
-        }
+        Text(
+            text = stringResource(Res.string.leaders_title),
+            style = MaterialTheme.typography.headlineSmall,
+            color = Primary,
+            modifier = Modifier.weight(1f),
+        )
         // A cloud with a slash means "your connection"; anything else is upstream's
         // fault and gets the neutral sync badge instead.
         if (state.isStale) {
@@ -242,31 +247,6 @@ private fun BoardHeader(state: MomentumLeadersUiState, onRefresh: () -> Unit) = 
         }
     }
     HorizontalDivider(thickness = Hairline, color = OutlineVariant)
-}
-
-@Composable
-private fun SyncStatusLabel(state: MomentumLeadersUiState) {
-    // Recompute the relative label roughly once a minute.
-    var now by remember { mutableStateOf(currentTimeMillis()) }
-    LaunchedEffect(state.lastSyncedAt) {
-        while (true) {
-            now = currentTimeMillis()
-            delay(30_000)
-        }
-    }
-    val text = when {
-        state.isRefreshing -> stringResource(Res.string.sync_syncing)
-
-        state.lastSyncedAt != null ->
-            stringResource(Res.string.sync_last, relativeTimeLabel(state.lastSyncedAt, now))
-
-        else -> stringResource(Res.string.sync_never)
-    }
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = if (state.isStale) NegativeRed else OnSurfaceVariant,
-    )
 }
 
 /**
@@ -511,21 +491,4 @@ internal fun LeaderSort.displayLabel(): String = when (this) {
 internal fun GeoFilter.displayLabel(): String = when (this) {
     GeoFilter.ALL -> stringResource(Res.string.geo_all)
     else -> label
-}
-
-/**
- * Localised "x ago" fragment for the sync line. Replaces the old
- * `formatRelativeTime`, which baked the English words in — this reads them from
- * resources so the whole label localises.
- */
-@Composable
-private fun relativeTimeLabel(epochMillis: Long, nowMillis: Long): String {
-    val diff = nowMillis - epochMillis
-    val minutes = if (diff < 0) 0L else diff / 60_000
-    return when {
-        minutes < 1 -> stringResource(Res.string.time_just_now)
-        minutes < 60 -> stringResource(Res.string.time_minutes_ago, minutes.toInt())
-        minutes < 24 * 60 -> stringResource(Res.string.time_hours_ago, (minutes / 60).toInt())
-        else -> stringResource(Res.string.time_days_ago, (minutes / (24 * 60)).toInt())
-    }
 }

@@ -13,17 +13,6 @@
          GeoFilter; only the "everything" chip is a translatable word. -->
     <string name="geo_all">All</string>
 
-    <!-- Sync status line under the title -->
-    <string name="sync_syncing">Syncing…</string>
-    <string name="sync_never">Never synced</string>
-    <string name="sync_last">Last synced %1$s</string>
-
-    <!-- Relative "x ago" fragments fed into sync_last -->
-    <string name="time_just_now">just now</string>
-    <string name="time_minutes_ago">%1$dm ago</string>
-    <string name="time_hours_ago">%1$dh ago</string>
-    <string name="time_days_ago">%1$dd ago</string>
-
     <!-- Empty board. %1$s = sort label, %2$s = geo label (may contain a flag). -->
     <string name="empty_all">No leaders for %1$s</string>
     <string name="empty_geo">No %1$s leaders for %2$s</string>

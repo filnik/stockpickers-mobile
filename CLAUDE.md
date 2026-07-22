@@ -269,7 +269,7 @@ Full guide: [docs/SUPABASE.md](docs/SUPABASE.md). The contract itself — units,
 
 ### Testing
 
-**Full guide: [docs/TESTING.md](docs/TESTING.md).** Three source sets, split by what each one is *able* to run:
+**Full guide: [docs/TESTING.md](docs/TESTING.md)** · screenshots: **[docs/SNAPSHOT_TESTING.md](docs/SNAPSHOT_TESTING.md)** · all docs: **[docs/INDEX.md](docs/INDEX.md)**. Three source sets, split by what each one is *able* to run:
 
 | Source set | Runs on | Holds |
 |---|---|---|
@@ -305,3 +305,5 @@ The rules that stop a wrong move:
 - **Empty leaders board** → the sync truncated at 1000 rows, or a quality verdict is null and correctly fail-safed out. Check `ScannerDao` before "fixing" the SQL.
 - **Room generates nothing** → `androidx.room` used instead of `androidx.room3`, or the KSP processor not added for that target.
 - **Stale dependency resolution after a version bump** → `./gradlew clean` and drop the configuration cache.
+- **`testDebugUnitTest` fails with a bare `java.io.EOFException`** → the test worker JVM died; there is no failing test to find. It means memory, not a broken assertion: Robolectric leaks across tests in one JVM (robolectric#8395) and each Roborazzi capture adds a full-screen bitmap. Tune `maxHeapSize`/`forkEvery` in `composeApp/build.gradle.kts` — but measure, because the two trade off against each other and a bigger heap can make things worse by starving the Gradle and Kotlin daemons.
+- **Two snapshot goldens with the same checksum** → the thing under test is below the fold and was never captured. Give that test a taller `@Config(qualifiers = …)`; see [docs/TESTING.md](docs/TESTING.md).

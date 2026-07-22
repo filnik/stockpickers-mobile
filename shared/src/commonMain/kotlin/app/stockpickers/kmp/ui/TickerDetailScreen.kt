@@ -149,7 +149,7 @@ fun TickerDetailScreen(
     ) { padding ->
         val detail = state.detail
         when {
-            state.isLoading -> CenteredFill { CircularProgressIndicator() }
+            state.isLoading -> CenteredFill { BusyCircularIndicator() }
 
             detail == null -> CenteredFill {
                 Text(
@@ -302,7 +302,7 @@ private fun PriceChartCard(
                 modifier = Modifier.fillMaxWidth().height(CHART_PLACEHOLDER_HEIGHT),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator()
+                BusyCircularIndicator()
             }
 
             else -> Text(

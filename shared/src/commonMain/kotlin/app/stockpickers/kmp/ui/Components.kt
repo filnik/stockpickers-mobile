@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -87,3 +90,46 @@ internal fun <T> SegmentedControl(
 internal val SegmentedTrackPadding = 4.dp
 internal val SegmentedItemSpacing = 4.dp
 internal val SegmentedItemVerticalPadding = 8.dp
+
+/**
+ * The app's busy spinners, drawn STILL when [LocalInspectionMode] is on — previews
+ * and Roborazzi snapshots.
+ *
+ * Material's indeterminate indicators run an `InfiniteTransition`. Under Robolectric
+ * that is not merely pointless but ruinous: the shadow Choreographer "advances the
+ * clock by the frame delay every time a frame callback is added", so the animation
+ * schedules the next frame, which advances the clock, which schedules the next —
+ * a loop that feeds itself. Measured on this project: minutes per screenshot for the
+ * four loading states, against ~0.1s for every static one.
+ *
+ * The substitute is the DETERMINATE overload at a fixed fraction, not a hand-drawn
+ * shape: it is the real Material component with the real geometry and colours, just
+ * with nothing left to animate. A single captured frame could never show motion
+ * anyway — this only stops it pretending otherwise.
+ *
+ * The check belongs HERE, in the component, and not in the test harness. Pausing the
+ * frame clock from the test was tried and does not work: by the time a test can act,
+ * the animation has already registered its callbacks. The composable is the only
+ * place that knows before the first frame.
+ */
+@Composable
+internal fun BusyCircularIndicator(modifier: Modifier = Modifier) {
+    if (LocalInspectionMode.current) {
+        CircularProgressIndicator(progress = { StillProgressFraction }, modifier = modifier)
+    } else {
+        CircularProgressIndicator(modifier)
+    }
+}
+
+/** The linear counterpart of [BusyCircularIndicator]; same reasoning. */
+@Composable
+internal fun BusyLinearIndicator(modifier: Modifier = Modifier) {
+    if (LocalInspectionMode.current) {
+        LinearProgressIndicator(progress = { StillProgressFraction }, modifier = modifier)
+    } else {
+        LinearProgressIndicator(modifier)
+    }
+}
+
+/** Two-thirds along: unmistakably "in progress", and not confusable with done. */
+private const val StillProgressFraction = 0.66f

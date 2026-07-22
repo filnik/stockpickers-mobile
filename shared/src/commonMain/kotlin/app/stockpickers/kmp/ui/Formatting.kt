@@ -2,11 +2,6 @@ package app.stockpickers.kmp.ui
 
 import kotlin.math.abs
 import kotlin.math.roundToLong
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
-
-@OptIn(ExperimentalTime::class)
-internal fun currentTimeMillis(): Long = Clock.System.now().toEpochMilliseconds()
 
 /** commonMain has no String.format — small manual fixed-decimal formatter. */
 internal fun Double.format(decimals: Int): String {

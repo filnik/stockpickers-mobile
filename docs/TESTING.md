@@ -281,6 +281,17 @@ Two things to know:
 - Goldens are **host-dependent** (JVM version, OS font rendering). Fine for a solo
   project; a CI runner on a different image would need its own baselines.
 
+### Traps that cost hours — see SNAPSHOT_TESTING.md
+
+Screenshot tests have failure modes the rest of the suite does not, and two of them
+produce **green tests that assert nothing**. All of it, with the diagnosis steps, is
+in **[SNAPSHOT_TESTING.md](SNAPSHOT_TESTING.md)**:
+
+- animated components must be stopped in the composable, never from the test harness
+- anything below the first screenful is not in the image (watch for duplicate checksums)
+- fixture determinism: no wall clock, no in-flight snackbar, no chart points
+- what to do when the suite goes from seconds to minutes
+
 ### The chart is deliberately not captured
 
 `PriceChart` feeds Vico from a `LaunchedEffect` that suspends on `runTransaction`,
